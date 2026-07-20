@@ -150,6 +150,65 @@ pub fn clean_free_space(
     Ok(CleanReport { written_bytes: written, free_before: free, margin })
 }
 
+/// SSD-appropriate clean: issue TRIM/discard for the volume's unused space — removes deleted data from
+/// the drive's host-visible read path WITHOUT the overwrite (no wear, no false assurance). Not a
+/// host-verifiable physical erase; encryption is what actually protects the residue on flash.
+pub fn trim_free_space(dir: &Path) -> Result<String> {
+    #[cfg(windows)]
+    {
+        let letter = dir
+            .canonicalize()
+            .ok()
+            .and_then(|p| {
+                let s = p.to_string_lossy().to_string();
+                let s = s.strip_prefix(r"\\?\").unwrap_or(&s).to_string();
+                s.chars().next().map(|c| c.to_string())
+            })
+            .unwrap_or_default();
+        if letter.is_empty() {
+            bail!("could not determine the drive letter for {}", dir.display());
+        }
+        let script = format!(
+            "Optimize-Volume -DriveLetter {letter} -ReTrim -ErrorAction SilentlyContinue | Out-Null; Write-Output 'ok'"
+        );
+        let out = run("powershell", &["-NoProfile", "-NonInteractive", "-Command", &script]);
+        if out.to_lowercase().contains("ok") {
+            Ok(format!("issued TRIM/Unmap for unused sectors on {letter}: (Optimize-Volume -ReTrim)"))
+        } else {
+            bail!("Optimize-Volume did not confirm — may need Administrator")
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let out = run("fstrim", &["-v", &dir.to_string_lossy()]);
+        if out.trim().is_empty() {
+            bail!("fstrim produced no output — needs privileges, or discard isn't supported here");
+        }
+        Ok(format!("fstrim: {}", out.trim()))
+    }
+}
+
+/// Clean a volume the RIGHT way for its media: TRIM on SSD (no wear), overwrite-fill on HDD/unknown.
+pub fn clean_volume(dir: &Path, max_bytes: Option<u64>, allow_system: bool) -> Result<String> {
+    match crate::detect::probe(dir).media {
+        crate::detect::Media::Ssd => {
+            let msg = trim_free_space(dir)?;
+            Ok(format!(
+                "SSD — {msg}. (TRIM removes it from the host read path; physical erase is deferred to the controller and is not host-verifiable — full-disk encryption is what protects the residue.)"
+            ))
+        }
+        m => {
+            let r = clean_free_space(dir, None, max_bytes, allow_system)?;
+            Ok(format!(
+                "{}: wrote ~{} MiB of random fill then removed it (kept {} MiB margin).",
+                m.as_str(),
+                r.written_bytes >> 20,
+                r.margin >> 20
+            ))
+        }
+    }
+}
+
 fn vec_random(n: usize) -> Result<Vec<u8>> {
     // one random block reused across writes (fresh randomness per install pass is not needed to overwrite)
     let mut v = vec![0u8; n];

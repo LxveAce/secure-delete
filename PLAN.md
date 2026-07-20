@@ -54,6 +54,21 @@ from the detected media/FS (HDD in-place FS → overwrite; SSD or CoW → crypto
 - **P3 DMS integration:** the wipe path destroys keys (crypto-erase). **Owner + HW-gated (irreversibility gate).**
 - **P4:** cross-product overwrite-on-uninstall hook (detached-helper design in the vault note) + a standalone GUI (Win/Linux).
 
+## The honest SSD strategy (grounded 2026-07-20)
+Overwriting flash is futile (FTL) **and** counterproductive (wear) — NIST says avoid it. So, per media:
+- **HDD:** overwrite is real. `clean`/`overwrite` do it.
+- **SSD everyday:** **TRIM** (not overwrite) — removes deleted data from the host read path; NOT a host-verifiable physical
+  erase. The **real protection is full-disk encryption** (deleted residue = ciphertext). `status` detects FDE + TRIM and
+  advises. Neither TRIM nor overwrite is on NIST/IEEE-2883's Clear/Purge lists for flash.
+- **SSD guaranteed (per file):** the **crypto-erase vault** (destroy the key). Residual on a commodity SSD = a stale
+  wrapped-master slot → closed by a **hardware KEK** (TPM 2.0 evict / Secure Enclave) — roadmap.
+- **SSD disposal:** the drive's **hardware Sanitize** (NVMe Format/Sanitize crypto-erase, ATA Secure Erase on an SED,
+  LUKS `luksErase` / OPAL factory-reset) — NIST Purge. Advisory today; a wrapped command next.
+- **Honesty:** never "unrecoverable" for TRIM/overwrite on SSD; FDE = "ciphertext at rest, protected when off/locked, NOT
+  on a live unlocked system"; crypto-erase = "protected now, not forever" (quantum); verification is trust-based.
+- **Two-tier claims:** Tier 1 "made inaccessible" (key/entry dropped, best-effort residual) vs Tier 2 "hardware-guaranteed
+  destroyed" (TPM/SEP evict, or drive Sanitize). Never merge them into one "unrecoverable."
+
 ## Language (recommended: Rust)
 A grounded eval (C / Rust / Go / Python for this exact tool) points to **Rust**. The vault's whole job is destroying key
 material, which needs reliable secret-zeroing (`zeroize` / `secrecy`) — Go's GC can copy a key to unwipeable memory (its

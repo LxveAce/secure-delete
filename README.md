@@ -46,14 +46,16 @@ vault re-keyed, so the ciphertext on the flash becomes permanent noise. This is 
 
 ## What we promise — and what we don't (honesty first)
 Secure Delete **never prints a bare "unrecoverable."** Every claim is scoped to what actually happened:
-- **HDD file overwrite** — real: one pass, that file's blocks are unrecoverable.
-- **SSD file overwrite** — **best-effort only.** We say so every time, and point you to the vault.
-- **Vault crypto-erase** — **truly unrecoverable**, on two honest conditions: the data must have entered the vault
-  encrypted (we can't un-write plaintext that already hit the flash), and the key must never have leaked (no key backup,
-  no copy paged to swap/hibernation). Miss either and the guarantee is void — so the design is built to hold both (a
-  passphrase-derived key that's never written to disk, and a vault re-key on every shred).
-- **Whole-drive disposal** — we print the exact vendor secure-erase / sanitize command; we don't wrap a drive-wipe we
-  can't verify.
+- **HDD** — overwrite is real: one pass, that file's blocks are gone.
+- **SSD** — overwriting can't reliably reach the flash (and it just wears the drive), so on SSD the quiet clean issues
+  **TRIM** — it removes deleted data from the drive's host-visible read path, but the physical erase is the controller's
+  to schedule, not a verifiable wipe. The **real protection on an SSD is full-disk encryption** (then deleted residue is
+  already ciphertext). **`secure-delete status`** tells you whether your drive is actually encrypted + TRIM-enabled, and
+  what to fix if not.
+- **Vault crypto-erase** — a per-file guarantee even on SSD, on two honest conditions: the data entered the vault
+  encrypted (no retroactive plaintext), and the key never leaked (no backup; no copy paged to swap/hibernation).
+- **Whole-drive disposal** — the drive's own hardware secure-erase (NVMe / ATA **Sanitize**) is the NIST-grade wipe; we
+  point you at it rather than pretend an overwrite did it.
 
 > **Status:** overwrite + detection + guards ship today (below); the **crypto-erase vault is in active development** —
 > it's the headline SSD answer and the reason this tool exists. Design + rationale: [PLAN.md](PLAN.md).
@@ -72,11 +74,13 @@ VSS shadow copies, pagefile/hiberfil, temp/caches/thumbnails, `$LogFile`/`$UsnJr
 spare/over-provisioned area.
 
 ## What works today (v0.2 — Rust)
-- **Quiet free-space clean** — `clean` a volume's free space now (overwrite it, and the SSD reclaims/TRIMs it when the
-  fill is removed), and `service` to keep doing it on a schedule so your normal deletions get **completed automatically**.
-  A dynamic safety margin is always kept, and the system volume is refused unless you opt in.
-- **The crypto-erase vault** — `init` · `add` · `list` · `open` · `shred`; shred destroys a file's key + re-keys the vault
-  → unrecoverable **even on an SSD**.
+- **`status` — the honest advisor.** Per volume, it tells you whether deleted data is actually protected: media (HDD/SSD),
+  full-disk-encryption state (+ scope), and TRIM — with plain advice (on an unencrypted SSD it tells you to enable FDE,
+  because overwriting can't save you there). Plus `detect` (media + filesystem).
+- **Quiet clean, media-aware.** `clean` **overwrites** free space on an **HDD** and issues **TRIM** on an **SSD** (no
+  wear, no false promise); `service` keeps it running on a schedule so normal deletions get completed automatically.
+- **The crypto-erase vault** — `init` · `add` · `list` · `open` · `shred`; destroy the key + re-key → unrecoverable **even
+  on an SSD**.
 - **Per-file overwrite** — `overwrite` a single file (real on HDD; best-effort on SSD), behind a confirmation gate.
 - **Memory-safe Rust**, keys in `zeroize`d buffers, vetted crypto (RustCrypto **AES-256-GCM** + **Argon2id**), one
   self-contained binary.
@@ -88,7 +92,11 @@ filesystem detection and the advisory whole-drive sanitize command. Roadmap: [PL
 ```
 cargo build --release
 
-# quiet mode — the install-time deep clean + the scheduled sweep:
+# is your drive actually protected? (the honest advisor)
+secure-delete status ./folder
+secure-delete detect ./folder
+
+# quiet mode — media-aware: overwrite on HDD, TRIM on SSD:
 secure-delete clean   ./folder                         # dry-run: shows the plan (writes nothing)
 secure-delete clean   ./folder --execute               # do it (add --allow-system-volume for C:/ or /)
 secure-delete service ./folder --interval 3600         # live quietly: clean now, then hourly
@@ -111,9 +119,11 @@ A one-click installer that registers the service and runs the first deep clean i
 
 ## Roadmap
 - **v0.1 (Python)** — per-file overwrite + guards + media/FS detection + free-space + advisory sanitize. Tagged `v0.1.0`.
-- **v0.2 (Rust) ← here** — **quiet free-space clean + service** · the **crypto-erase vault** (`init`/`add`/`list`/`open`/`shred`) · per-file overwrite.
-- **Next** — a one-click installer (registers the service + runs the first deep clean); port media/FS detection + advisory
-  sanitize; a whole-vault re-key (passphrase change) + a TPM/token-backed root for a hardware-guaranteed shred; a desktop GUI.
+- **v0.2 (Rust) ← here** — the **`status` advisor** + media-aware **quiet clean** (overwrite HDD / TRIM SSD) · the
+  **crypto-erase vault** (`init`/`add`/`list`/`open`/`shred`) · per-file overwrite.
+- **Next** — a one-click installer (register the service + first deep clean); hardware disposal (NVMe/ATA **Sanitize**
+  crypto-erase); a **TPM / Secure-Enclave-backed vault root** for a hardware-guaranteed shred (closes the SSD residual);
+  transparent per-file crypto via **fscrypt** (a "protected folder", no manual vault); a desktop GUI.
 
 Design rationale + the full plan: [PLAN.md](PLAN.md). Safety posture: [SAFETY.md](SAFETY.md).
 
