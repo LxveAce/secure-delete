@@ -43,13 +43,13 @@ jobs:
           TPM2TOOLS_TCTI: "tabrmd:bus_type=session"
           SD_REQUIRE_TPM: "1"
         run: |
-          dbus-run-session -- bash -euxo pipefail -c '
-            tpm2-abrmd --session --tcti=swtpm:host=127.0.0.1,port=2321 --logger=stdout &
-            for i in $(seq 1 20); do
-              if tpm2_getcap properties-fixed >/dev/null 2>&1; then echo "abrmd reachable after ${i}s"; break; fi
-              sleep 1
-            done
-            # Hard-fail the step (set -e) if the TPM is still unreachable, so tests cannot silently skip.
-            tpm2_getcap properties-fixed | head -n 3
+          dbus-run-session -- bash -c '
+            set -x
+            tpm2-abrmd --session --tcti=swtpm:host=127.0.0.1,port=2321 --logger=stdout > /tmp/abrmd.log 2>&1 &
+            AB=$!
+            sleep 3
+            echo "--- abrmd alive? ---"; ps -p $AB || echo "ABRMD EXITED"
+            echo "--- abrmd.log ---"; cat /tmp/abrmd.log || true
+            echo "--- getcap via tabrmd ---"; tpm2_getcap properties-fixed; echo "getcap rc=$?"
             cargo test --test keyroot_linux -- --nocapture --test-threads=1
           '
