@@ -5,7 +5,7 @@ and asked for everything logged + pushed so it's pickable-up at home._
 
 ## Where everything lives (all committed + pushed to GitHub)
 - **This repo — the canonical home:** `LxveAce/secure-delete` (**PUBLIC, MIT**). Graduated out of command-center 2026-07-20.
-- **Design-log + rationale (Obsidian):** vault `03-Products/Secure-Delete/Secure-Delete.md` (also in the `lxvelabs-vault` repo).
+- **Design-log + rationale (Obsidian):** vault `03-Projects/Secure-Delete/Secure-Delete.md` (also in the `lxvelabs-vault` repo).
 - **Idea capture (verbatim owner words) + researched plan:** `command-center/projects/ideas/secure-delete.md`.
 - **Incubator entry:** `command-center/projects/ideas/IDEA-INCUBATOR.md` (row #1).
 - **Safeguard note:** `command-center/SAFEGUARDS-LOG.md` (2026-07-18).

@@ -1,6 +1,6 @@
 # secure-delete — refined implementation plan (P1 spec)
 
-Refines the vault design-log (`03-Products/Secure-Delete/Secure-Delete.md`) into a concrete build order. Scope here is
+Refines the vault design-log (`03-Projects/Secure-Delete/Secure-Delete.md`) into a concrete build order. Scope here is
 **P1: the primitive + a CLI.** Later phases (crypto-erase, DMS integration, GUI) are sketched at the end.
 
 ## Non-negotiables (carried from the design)
