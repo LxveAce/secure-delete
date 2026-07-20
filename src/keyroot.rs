@@ -400,9 +400,12 @@ impl KeyRoot for LinuxTpm2Root {
         let path = |n: &str| wd.join(n).to_string_lossy().into_owned();
         let (pctx, spub, spriv, sctx) = (path("primary.ctx"), path("seal.pub"), path("seal.priv"), path("seal.ctx"));
         let run = |args: &[&str], stdin: Option<&[u8]>| -> Result<(), KeyRootError> {
-            match tpm2(args, stdin)? {
-                (0, _, _) => Ok(()),
-                _ => Err(KeyRootError::CryptoFail),
+            let (code, _out, err) = tpm2(args, stdin)?;
+            if code == 0 {
+                Ok(())
+            } else {
+                eprintln!("secure-delete: tpm2 `{}` failed (exit {code}): {}", args.join(" "), err.trim());
+                Err(KeyRootError::CryptoFail)
             }
         };
         let result = (|| {

@@ -40,4 +40,4 @@ jobs:
       - name: Run the Linux TPM tests against the emulated TPM
         env:
           TPM2TOOLS_TCTI: "swtpm:host=127.0.0.1,port=2321"
-        run: cargo test --test keyroot_linux -- --nocapture
+        run: cargo test --test keyroot_linux -- --nocapture --test-threads=1
