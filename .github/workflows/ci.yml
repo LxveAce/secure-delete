@@ -22,10 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install tpm2-tools + swtpm (+ the swtpm TCTI)
+      - name: Install tpm2-tools + swtpm + abrmd (resource manager)
         run: |
           sudo apt-get update
-          sudo apt-get install -y tpm2-tools swtpm swtpm-tools libtss2-tcti-swtpm0
+          sudo apt-get install -y tpm2-tools tpm2-abrmd swtpm swtpm-tools libtss2-tcti-swtpm0 dbus
       - name: Start the software TPM (swtpm)
         run: |
           mkdir -p /tmp/swtpm
@@ -35,9 +35,15 @@ jobs:
             --server type=tcp,port=2321 \
             --tpm2 --flags not-need-init,startup-clear --daemon
           sleep 1
-          export TPM2TOOLS_TCTI="swtpm:host=127.0.0.1,port=2321"
-          tpm2_getcap properties-fixed | head -n 3
-      - name: Run the Linux TPM tests against the emulated TPM
+          TPM2TOOLS_TCTI="swtpm:host=127.0.0.1,port=2321" tpm2_getcap properties-fixed | head -n 3
+      # Run behind tpm2-abrmd — a resource manager that flushes transient objects per client, exactly
+      # like the kernel's /dev/tpmrm0 does on a real Linux box (swtpm-over-TCP has no RM of its own).
+      - name: Run the Linux TPM tests via abrmd
         env:
-          TPM2TOOLS_TCTI: "swtpm:host=127.0.0.1,port=2321"
-        run: cargo test --test keyroot_linux -- --nocapture --test-threads=1
+          TPM2TOOLS_TCTI: "tabrmd:bus_type=session"
+        run: |
+          dbus-run-session -- bash -euxo pipefail -c '
+            tpm2-abrmd --session --tcti=swtpm:host=127.0.0.1,port=2321 &
+            sleep 3
+            cargo test --test keyroot_linux -- --nocapture --test-threads=1
+          '
