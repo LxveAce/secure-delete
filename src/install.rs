@@ -1,14 +1,12 @@
-//! One-click quiet mode: register the background free-space `service` to run at logon and (unless opted
-//! out) run one initial deep clean — so the tool "lives quietly" after install. `uninstall` removes the
-//! logon entry (it does NOT and cannot restore already-cleaned data — there is nothing to undo).
+//! One-click quiet mode: register the background free-space `service` to run in the background and
+//! (unless opted out) run one initial deep clean, so the tool keeps working after install. `uninstall`
+//! removes the registration. It can't bring back already-cleaned data, so there's nothing to undo there.
 //!
-//! Windows: a **per-user, no-admin** logon entry under `HKCU\...\Run`, launched through a generated
-//! VBScript wrapper so the background clean runs with **no visible window**. All via `reg.exe` + a file
-//! (no `windows-sys` dependency). Linux: the systemd unit + timer are generated and printed for you to
-//! drop in and enable — honest + reversible, not auto-registered on an untested platform.
-#[cfg(windows)]
+//! Windows uses a per-user, no-admin entry under `HKCU\...\Run`, started through a generated VBScript
+//! wrapper so the clean runs with no visible window, all via `reg.exe` and a file (no `windows-sys`).
+//! Linux writes a systemd user service + timer and enables the timer. If there's no systemd user session
+//! (a headless box, for instance), it writes the units anyway and prints the two commands to finish by hand.
 use crate::freespace;
-#[cfg(windows)]
 use anyhow::anyhow;
 #[cfg(windows)]
 use anyhow::bail;
@@ -118,22 +116,87 @@ pub fn uninstall(dir: &Path, dry_run: bool) -> Result<String> {
 
 // --------------------------------------------------------------------------------------------------
 #[cfg(not(windows))]
-pub fn install(dir: &Path, interval: u64, _max: Option<u64>, allow_system: bool, _initial_clean: bool, _dry_run: bool) -> Result<String> {
+fn systemd_units(dir: &Path, interval: u64, allow_system: bool) -> Result<(String, String)> {
     let exe = std::env::current_exe()?.display().to_string();
     let d = abs(dir);
     let sys = if allow_system { " --allow-system-volume" } else { "" };
     let service = format!(
-        "# ~/.config/systemd/user/secure-delete-clean.service\n[Unit]\nDescription=Secure Delete — quiet free-space clean\n\n[Service]\nType=oneshot\nExecStart={exe} clean \"{d}\" --execute{sys}\n"
+        "[Unit]\nDescription=Secure Delete quiet free-space clean\n\n[Service]\nType=oneshot\nExecStart={exe} clean \"{d}\" --execute{sys}\n"
     );
     let timer = format!(
-        "# ~/.config/systemd/user/secure-delete-clean.timer\n[Unit]\nDescription=Run Secure Delete quiet clean periodically\n\n[Timer]\nOnBootSec=5min\nOnUnitActiveSec={interval}s\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n"
+        "[Unit]\nDescription=Run Secure Delete quiet clean on a schedule\n\n[Timer]\nOnBootSec=5min\nOnUnitActiveSec={interval}s\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n"
     );
-    Ok(format!(
-        "Linux quiet-mode setup (generated — drop these in and enable; not auto-registered on this platform):\n\n{service}\n{timer}\nThen:\n  systemctl --user daemon-reload\n  systemctl --user enable --now secure-delete-clean.timer"
-    ))
+    Ok((service, timer))
 }
 
 #[cfg(not(windows))]
-pub fn uninstall(_dir: &Path, _dry_run: bool) -> Result<String> {
-    Ok("Linux: disable + remove the unit you installed:\n  systemctl --user disable --now secure-delete-clean.timer\n  rm ~/.config/systemd/user/secure-delete-clean.{service,timer}\n  systemctl --user daemon-reload".into())
+fn user_unit_dir() -> Result<PathBuf> {
+    let base = std::env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .map_err(|_| anyhow!("neither XDG_CONFIG_HOME nor HOME is set"))?;
+    Ok(base.join("systemd").join("user"))
+}
+
+/// Best-effort `systemctl --user`; returns whether it succeeded (false if there's no user session).
+#[cfg(not(windows))]
+fn systemctl(args: &[&str]) -> bool {
+    std::process::Command::new("systemctl")
+        .arg("--user")
+        .args(args)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(windows))]
+pub fn install(dir: &Path, interval: u64, max: Option<u64>, allow_system: bool, initial_clean: bool, dry_run: bool) -> Result<String> {
+    let (service, timer) = systemd_units(dir, interval, allow_system)?;
+    let unit_dir = user_unit_dir()?;
+    if dry_run {
+        return Ok(format!(
+            "DRY-RUN (nothing changed):\n  would write {}/secure-delete-clean.{{service,timer}}\n  then: systemctl --user daemon-reload && systemctl --user enable --now secure-delete-clean.timer\n  initial deep clean: {}",
+            unit_dir.display(),
+            if initial_clean { "yes" } else { "no (--no-initial-clean)" }
+        ));
+    }
+
+    std::fs::create_dir_all(&unit_dir)?;
+    std::fs::write(unit_dir.join("secure-delete-clean.service"), &service)?;
+    std::fs::write(unit_dir.join("secure-delete-clean.timer"), &timer)?;
+
+    let enabled = systemctl(&["daemon-reload"]) && systemctl(&["enable", "--now", "secure-delete-clean.timer"]);
+    let mut msg = format!("wrote the systemd user units to {}", unit_dir.display());
+    if enabled {
+        msg.push_str("\nenabled secure-delete-clean.timer; it cleans on a schedule now.");
+    } else {
+        msg.push_str("\ncouldn't enable it here (no systemd user session). Finish with:\n  systemctl --user daemon-reload\n  systemctl --user enable --now secure-delete-clean.timer");
+    }
+    if initial_clean {
+        match freespace::clean_volume(dir, max, allow_system) {
+            Ok(r) => msg.push_str(&format!("\ninitial deep clean: {r}")),
+            Err(e) => msg.push_str(&format!("\ninitial deep clean skipped: {e}")),
+        }
+    }
+    Ok(msg)
+}
+
+#[cfg(not(windows))]
+pub fn uninstall(_dir: &Path, dry_run: bool) -> Result<String> {
+    let unit_dir = user_unit_dir()?;
+    if dry_run {
+        return Ok(format!(
+            "DRY-RUN: would disable the timer and remove {}/secure-delete-clean.{{service,timer}}",
+            unit_dir.display()
+        ));
+    }
+    let _ = systemctl(&["disable", "--now", "secure-delete-clean.timer"]);
+    let removed_svc = std::fs::remove_file(unit_dir.join("secure-delete-clean.service")).is_ok();
+    let removed_tim = std::fs::remove_file(unit_dir.join("secure-delete-clean.timer")).is_ok();
+    let _ = systemctl(&["daemon-reload"]);
+    if removed_svc || removed_tim {
+        Ok("removed the systemd user units and disabled the timer. (Already-cleaned data can't be brought back.)".into())
+    } else {
+        Ok("no secure-delete units were installed (already uninstalled).".into())
+    }
 }

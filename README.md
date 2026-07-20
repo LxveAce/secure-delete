@@ -95,7 +95,7 @@ secure-delete install /home --interval 21600        # pick the volume and how of
 secure-delete install C:\ --dry-run                 # show what it would register, change nothing
 secure-delete uninstall C:\                          # stop it (already-cleaned data can't be brought back)
 ```
-On Windows this adds a per-user login entry under `HKCU\…\Run` that starts the background `service` with no visible window and no admin. On Linux, `install` prints a systemd user unit and timer you can drop in and enable; automatic registration there is coming with the Linux hardware-root work.
+On Windows this adds a per-user login entry under `HKCU\…\Run` that starts the background `service` with no visible window and no admin. On Linux it writes a systemd user service and timer and enables the timer. On a headless box with no user session it still writes the units and prints the two commands to finish by hand.
 
 ## Roadmap
 - **v0.1 (Python)** — per-file overwrite, guards, media/FS detection, free-space wipe, advisory sanitize. Tagged `v0.1.0`.
@@ -104,7 +104,8 @@ On Windows this adds a per-user login entry under `HKCU\…\Run` that starts the
 - **v0.3.0** — an opt-in TPM-backed vault root (`init --tpm`) and `hardware-shred` that closes the SSD residue in hardware, a one-time recovery kit with `recover`, and `vault-status`. Windows complete; Linux and macOS roots designed.
 - **v0.3.1** — one-command `install`/`uninstall` for quiet mode. On Windows a per-user, no-admin, hidden login entry that runs the background clean; on Linux a generated systemd unit and timer.
 - **v0.3.2 (current)** — the Linux tpm2-tools hardware root. The key is sealed into a persisted, evictable TPM object, so `hardware-shred` evicting it is a true in-hardware erase, stronger than the on-disk key blob Windows uses. Verified in CI against an emulated TPM.
-- **Next** — the macOS Secure Enclave root (needs a signed Swift helper and Apple hardware), automatic Linux service registration, whole-drive hardware Sanitize for disposal, fscrypt as a "protected folder", and a desktop GUI.
+- **v0.3.3 (current)** — Linux `install` now writes and enables the systemd user service and timer itself, instead of just printing them, matching the one-command setup Windows already had.
+- **Next** — the macOS Secure Enclave root (needs a signed Swift helper and Apple hardware), whole-drive hardware Sanitize for disposal, fscrypt as a "protected folder", and a desktop GUI.
 
 Design notes and rationale are in [PLAN.md](PLAN.md). Safety posture is in [SAFETY.md](SAFETY.md).
 
