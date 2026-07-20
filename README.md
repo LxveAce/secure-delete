@@ -37,7 +37,7 @@ The tool never prints a bare "unrecoverable." What you actually get depends on t
 - **HDD.** Overwrite works. One pass and that file's blocks are gone.
 - **SSD.** Overwriting can't reliably reach the flash, and it wears the drive for nothing, so quiet mode issues TRIM instead. TRIM drops the data from the drive's host-visible read path, but the physical erase happens whenever the controller gets around to it, so it isn't a verified wipe. The thing that actually protects deleted data on an SSD is full-disk encryption, because then the leftover bytes are already ciphertext. Run `secure-delete status` and it tells you whether your drive is encrypted and TRIM is on, and what to turn on if not.
 - **Vault (crypto-erase).** A per-file guarantee that holds even on an SSD, with two conditions: the data went in encrypted (nothing plaintext to recover), and the key never leaked (no copy paged out to swap or hibernation). A software vault leaves the small gap above; a TPM vault closes it. On Windows the TPM key is a wrapped blob kept on disk that only this machine's TPM can use, so deleting it is strong, but it's defense in depth rather than a wipe inside the chip. On Linux the key stays inside the TPM itself and gets evicted, which is a true in-hardware erase.
-- **Whole drive.** For disposal, the drive's own hardware secure-erase (NVMe or ATA Sanitize) is the real wipe. The tool points you at it rather than pretend an overwrite did the job.
+- **Whole drive.** For disposal, the drive's own hardware secure-erase (NVMe or ATA Sanitize) is the real wipe. Run `secure-delete sanitize <path>` and it works out your drive and interface and prints the exact command, with the caveats. It runs nothing itself; you run the command after reading it.
 
 ## Coverage by drive type
 
@@ -57,6 +57,7 @@ Default is one pass. Multi-pass Gutmann and DoD schemes are obsolete on modern d
 - **The vault** — `init`, `add`, `list`, `open`, `shred`, `rekey`. Shred destroys a file's key and re-keys the vault. `rekey` changes the passphrase and re-keys everything, which is the software way to kill any stale key material an SSD left behind.
 - **TPM-backed vault.** `init --tpm` ties the vault to this machine's TPM, so opening it needs both the hardware and the passphrase. `hardware-shred` rotates the TPM key, which kills any stale wrapped key in flash for good. If the TPM ever dies you reopen with a one-time recovery code (`recover`), and `vault-status` tells you whether the hardware key is still there. Works on Windows (Platform Crypto Provider, no admin) and Linux (tpm2-tools, verified in CI against an emulated TPM). macOS Secure Enclave is designed but not built yet.
 - **`overwrite`** wipes a single file in place, real on an HDD and best-effort on an SSD, behind a confirmation gate.
+- **`sanitize`** is the disposal helper: it detects the drive behind a path and prints its hardware secure-erase command (`nvme sanitize` or the `hdparm` sequence), with caveats. Advisory, runs nothing.
 - Written in Rust. Keys are held in zeroized buffers, the crypto is RustCrypto (AES-256-GCM, Argon2id, HKDF), and it builds to one self-contained binary.
 
 The original v0.1 (Python, tagged [`v0.1.0`](https://github.com/LxveAce/secure-delete/tree/v0.1.0)) still holds the media/filesystem detection and the advisory whole-drive sanitize command, which are being ported over.
@@ -68,6 +69,9 @@ cargo build --release
 # is your drive actually protected?
 secure-delete status ./folder
 secure-delete detect ./folder
+
+# getting rid of the whole drive? print its hardware erase command
+secure-delete sanitize ./folder
 
 # quiet mode: overwrite on HDD, TRIM on SSD
 secure-delete clean   ./folder                         # dry-run: shows the plan, writes nothing
@@ -104,8 +108,9 @@ On Windows this adds a per-user login entry under `HKCU\…\Run` that starts the
 - **v0.3.0** — an opt-in TPM-backed vault root (`init --tpm`) and `hardware-shred` that closes the SSD residue in hardware, a one-time recovery kit with `recover`, and `vault-status`. Windows complete; Linux and macOS roots designed.
 - **v0.3.1** — one-command `install`/`uninstall` for quiet mode. On Windows a per-user, no-admin, hidden login entry that runs the background clean; on Linux a generated systemd unit and timer.
 - **v0.3.2 (current)** — the Linux tpm2-tools hardware root. The key is sealed into a persisted, evictable TPM object, so `hardware-shred` evicting it is a true in-hardware erase, stronger than the on-disk key blob Windows uses. Verified in CI against an emulated TPM.
-- **v0.3.3 (current)** — Linux `install` now writes and enables the systemd user service and timer itself, instead of just printing them, matching the one-command setup Windows already had.
-- **Next** — the macOS Secure Enclave root (needs a signed Swift helper and Apple hardware), whole-drive hardware Sanitize for disposal, fscrypt as a "protected folder", and a desktop GUI.
+- **v0.3.3** — Linux `install` now writes and enables the systemd user service and timer itself, instead of just printing them, matching the one-command setup Windows already had.
+- **v0.3.4 (current)** — a `sanitize` command that detects your drive and interface and prints the exact hardware secure-erase command for disposal. Advisory, runs nothing.
+- **Next** — the macOS Secure Enclave root (needs a signed Swift helper and Apple hardware), fscrypt as a "protected folder", and a desktop GUI.
 
 Design notes and rationale are in [PLAN.md](PLAN.md). Safety posture is in [SAFETY.md](SAFETY.md).
 

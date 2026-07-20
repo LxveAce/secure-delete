@@ -9,6 +9,7 @@ pub mod freespace;
 pub mod install;
 pub mod keyroot;
 pub mod overwrite;
+pub mod sanitize;
 pub mod status;
 pub mod vault;
 

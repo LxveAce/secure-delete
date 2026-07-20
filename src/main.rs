@@ -76,6 +76,8 @@ enum Cmd {
     Detect { path: PathBuf },
     /// (read-only) Is deleted data on this volume actually protected? Reports media + encryption + TRIM, and advises.
     Status { path: PathBuf },
+    /// (advisory) How to hardware-erase the WHOLE drive behind a path for disposal. Prints the command, runs nothing.
+    Sanitize { path: PathBuf },
     /// Clean a volume's free space (overwrite unallocated space -> completes true deletion of already-removed files).
     Clean {
         dir: PathBuf,
@@ -286,6 +288,24 @@ fn main() -> Result<()> {
             println!("  advice:");
             for a in &s.advice {
                 println!("    - {a}");
+            }
+        }
+        Cmd::Sanitize { path } => {
+            let adv = secure_delete::sanitize::advise(&path);
+            println!("whole-drive erase for: {}", path.display());
+            println!("  device:    {}", adv.device);
+            println!("  interface: {}", adv.interface.as_str());
+            if adv.commands.is_empty() {
+                println!("  commands:  (none built in for this platform — see the notes)");
+            } else {
+                println!("  commands (run these yourself, after reading the notes):");
+                for c in &adv.commands {
+                    println!("    {c}");
+                }
+            }
+            println!("  notes:");
+            for n in &adv.notes {
+                println!("    - {n}");
             }
         }
         Cmd::Clean { dir, execute, max, allow_system_volume } => {
