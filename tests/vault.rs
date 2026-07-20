@@ -79,3 +79,13 @@ fn overwrite_needs_confirmation_and_refuses_dirs() {
     assert!(!f.exists());
     let _ = fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn clean_free_space_capped_writes_and_cleans_up() {
+    let tmp = scratch("clean");
+    // small cap + allow_system (temp is on the system volume in dev/CI)
+    let r = secure_delete::freespace::clean_free_space(&tmp, None, Some(4 * 1024 * 1024), true).unwrap();
+    assert!(r.written_bytes <= 4 * 1024 * 1024); // never exceeds the cap
+    assert!(!tmp.join(".secure-delete-clean-tmp").exists()); // fill removed
+    let _ = fs::remove_dir_all(&tmp);
+}

@@ -4,6 +4,7 @@
 //! gone by destroying the KEY instead: encrypt each file with its own key on ingest; "shred" = destroy
 //! that key and re-key the vault. See [`vault`] for the construction and its honest boundaries.
 pub mod crypto;
+pub mod freespace;
 pub mod overwrite;
 pub mod vault;
 

@@ -31,12 +31,18 @@ controller writes your "overwrite" to a *different* physical cell and leaves the
 even address**. A landmark UC San Diego study recovered **4–75% of data after a full-drive overwrite attempt**. So on an
 SSD, overwriting a file is best-effort at best — and any tool that calls it "unrecoverable" is lying to you.
 
-## Our answer: destroy the *key*, not the bytes
-You can't reliably erase the bytes on an SSD — so don't chase them. **Encrypt each file with its own random key the moment
-it enters the Secure Delete vault; to "shred" it, destroy that key** (and re-key the vault). The ciphertext scattered
-across the flash instantly becomes permanent noise — truly unrecoverable, without overwriting a single cell. This is
-**cryptographic erase**, a method NIST recognizes (SP 800-88r2), and it's how Apple wipes an iPhone in seconds: *"erasing
-the key renders all files cryptographically inaccessible."*
+## Our answer: make it gone, quietly
+Two modes, so "delete" finally means delete:
+
+**1 — Quiet mode (the default).** Install it, let it run one deep **free-space clean**, then it lives quietly and cleans
+free space on a schedule. Whatever you delete the normal way gets its leftover data **overwritten** (on an HDD) and handed
+back to the drive to erase via **TRIM** (on an SSD) shortly after — with zero effort from you. Simple by design: no
+delete-hooks, no kernel drivers, it just runs.
+
+**2 — Vault mode (a hardware-independent guarantee, even on SSD).** For data you want a hard promise on, put it in the
+**crypto-erase vault**: each file is encrypted with its own key on the way in; to shred it, the key is destroyed and the
+vault re-keyed, so the ciphertext on the flash becomes permanent noise. This is **cryptographic erase** (NIST SP 800-88r2)
+— the same trick that wipes an iPhone in seconds.
 
 ## What we promise — and what we don't (honesty first)
 Secure Delete **never prints a bare "unrecoverable."** Every claim is scoped to what actually happened:
@@ -66,40 +72,48 @@ VSS shadow copies, pagefile/hiberfil, temp/caches/thumbnails, `$LogFile`/`$UsnJr
 spare/over-provisioned area.
 
 ## What works today (v0.2 — Rust)
-- **The crypto-erase vault — the SSD solve.** Encrypt files into a vault (AES-256-GCM, a unique key per file), then
-  `list` / `open` them — and **`shred`**: destroy a file's key and re-key the vault, so its ciphertext becomes permanent
-  noise, unrecoverable **even on an SSD**. Commands: `init` · `add` · `list` · `open` · `shred`.
-- **Per-file overwrite.** `overwrite` a file in place (real on HDD; best-effort on SSD, honestly labeled), behind a
-  confirmation gate; dry-run by default.
-- **Memory-safe Rust**, keys held in `zeroize`d buffers, vetted crypto (RustCrypto **AES-256-GCM** + **Argon2id**), a
-  single self-contained binary.
+- **Quiet free-space clean** — `clean` a volume's free space now (overwrite it, and the SSD reclaims/TRIMs it when the
+  fill is removed), and `service` to keep doing it on a schedule so your normal deletions get **completed automatically**.
+  A dynamic safety margin is always kept, and the system volume is refused unless you opt in.
+- **The crypto-erase vault** — `init` · `add` · `list` · `open` · `shred`; shred destroys a file's key + re-keys the vault
+  → unrecoverable **even on an SSD**.
+- **Per-file overwrite** — `overwrite` a single file (real on HDD; best-effort on SSD), behind a confirmation gate.
+- **Memory-safe Rust**, keys in `zeroize`d buffers, vetted crypto (RustCrypto **AES-256-GCM** + **Argon2id**), one
+  self-contained binary.
 
-Being ported from **v0.1** (Python, tagged [`v0.1.0`](https://github.com/LxveAce/secure-delete/tree/v0.1.0)): read-only
-media/filesystem detection, free-space wipe, and the advisory whole-drive sanitize command. Roadmap: [PLAN.md](PLAN.md).
+Being ported from **v0.1** (Python, tagged [`v0.1.0`](https://github.com/LxveAce/secure-delete/tree/v0.1.0)): media/
+filesystem detection and the advisory whole-drive sanitize command. Roadmap: [PLAN.md](PLAN.md).
 
 ## Try it
 ```
 cargo build --release
-export SECURE_DELETE_PASSPHRASE="your vault passphrase"    # or you'll be prompted
 
-# the crypto-erase vault — the SSD answer:
+# quiet mode — the install-time deep clean + the scheduled sweep:
+secure-delete clean   ./folder                         # dry-run: shows the plan (writes nothing)
+secure-delete clean   ./folder --execute               # do it (add --allow-system-volume for C:/ or /)
+secure-delete service ./folder --interval 3600         # live quietly: clean now, then hourly
+
+# vault mode — a guarantee even on SSD:
+export SECURE_DELETE_PASSPHRASE="your passphrase"
 secure-delete init  ./myvault
-secure-delete add   ./myvault ./secret.pdf     # encrypted the moment it enters
-secure-delete list  ./myvault
-secure-delete open  ./myvault <id> ./out       # decrypt it back out
-secure-delete shred ./myvault <id>             # destroy the key -> unrecoverable, even on SSD
+secure-delete add   ./myvault ./secret.pdf             # encrypted the moment it enters
+secure-delete shred ./myvault <id>                     # destroy the key -> unrecoverable
 
-# per-file overwrite (real on HDD, best-effort on SSD):
-secure-delete overwrite ./junk.txt --execute --confirm "./junk.txt"
-
-cargo test    # vault round-trip · wrong-passphrase · shred + re-key · overwrite guard
+cargo test
 ```
+
+## Run it quietly (the intended setup)
+"Lives quietly" = let your OS scheduler run `secure-delete service`:
+- **Linux (systemd):** a unit running `secure-delete service /home --interval 21600`, enabled at boot.
+- **Windows (Task Scheduler):** a task running `secure-delete.exe service C:\ --interval 21600 --allow-system-volume` at logon.
+
+A one-click installer that registers the service and runs the first deep clean is on the roadmap; today it's the two lines above.
 
 ## Roadmap
 - **v0.1 (Python)** — per-file overwrite + guards + media/FS detection + free-space + advisory sanitize. Tagged `v0.1.0`.
-- **v0.2 (Rust) ← here** — the **crypto-erase vault** (`init`/`add`/`list`/`open`/`shred`) + per-file overwrite.
-- **Next** — port detection / free-space / sanitize to Rust; a whole-vault re-key (passphrase change); a TPM/token-backed
-  root for a hardware-guaranteed shred; Dead Man's Switch key-destruction integration; a desktop GUI.
+- **v0.2 (Rust) ← here** — **quiet free-space clean + service** · the **crypto-erase vault** (`init`/`add`/`list`/`open`/`shred`) · per-file overwrite.
+- **Next** — a one-click installer (registers the service + runs the first deep clean); port media/FS detection + advisory
+  sanitize; a whole-vault re-key (passphrase change) + a TPM/token-backed root for a hardware-guaranteed shred; a desktop GUI.
 
 Design rationale + the full plan: [PLAN.md](PLAN.md). Safety posture: [SAFETY.md](SAFETY.md).
 
