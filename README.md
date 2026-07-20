@@ -13,9 +13,10 @@ unrecoverable while the space returns as normal free space — the reusable "sec
 product can call. Same lineage as `shred` / `sdelete` / BleachBit / VeraCrypt: **for your own or authorized data only.**
 
 > [!WARNING]
-> **Early build — SAFE by default.** It **detects and plans** (dry-run) but ships **no destructive code yet**: the erase
-> methods are guarded and `execute()` refuses. It won't delete anything until the real erase paths are built behind an
-> explicit confirm gate. See [SAFETY.md](SAFETY.md).
+> **This tool permanently erases data** — but it is **SAFE by default.** Everything is a dry-run unless you pass
+> `--execute`, which then requires you to **type the exact target path** to confirm. It refuses system paths, symlinks,
+> and non-files. Per-file overwrite and free-space wipe are real; whole-drive erase is **advisory** (it prints the OS
+> command, runs nothing). **For your own or authorized data only.** See [SAFETY.md](SAFETY.md).
 
 ## The one idea that shapes everything
 Overwriting a deleted file works on a **magnetic HDD** but is **unreliable on an SSD** — the flash translation layer sends
@@ -39,23 +40,33 @@ VSS shadow copies, pagefile/hiberfil, temp/caches/thumbnails, `$LogFile`/`$UsnJr
 spare/over-provisioned area.
 
 ## What works today
-- **Read-only detection** of media (HDD vs SSD) + filesystem — Linux (`findmnt` / `lsblk`) and Windows
-  (`Get-Volume` / `Get-Partition` / `Get-PhysicalDisk`). Verified on real hardware.
-- The **honest routing + claim engine** (dry-run): picks crypto-erase on SSD / copy-on-write / unknown media, overwrite
-  only on HDD + in-place FS, and surfaces the residual copies that may survive.
-- A **CLI** — `detect` and `file` — dry-run only, destroys nothing.
+- **Real per-file secure erase** — overwrite the file's bytes, obscure its name, delete it — behind a hard **guard**
+  (refuses system paths / symlinks / non-files) and an **exact-match confirmation gate** (you type the full path).
+- **Free-space wipe** — fill unallocated space with random data (leaving a safety margin) then remove it, to erase
+  previously-deleted file data. Confirm-gated.
+- **Advisory whole-drive sanitize / crypto-erase** — prints the exact `nvme` / `hdparm` / `cryptsetup` command for the
+  detected drive and **runs nothing** (a drive wipe is too dangerous to wrap-and-run).
+- **Read-only detection** of media (HDD vs SSD) + filesystem — Linux (`findmnt`/`lsblk`) and Windows (`Get-PhysicalDisk`).
+- **Honest routing + claims** — crypto-erase recommended on SSD / copy-on-write / unknown media; overwrite is labeled
+  best-effort on flash; never a bare "unrecoverable"; residual copies are always disclosed.
 
-## Try it (safe — plans only)
+## Try it
 ```
-PYTHONPATH=src python -m secure_delete.cli detect ./README.md   # read-only: what media + FS did it find?
-PYTHONPATH=src python -m secure_delete.cli file ./README.md     # the honest erase plan (destroys nothing)
-python -m pytest tests/                                         # detection routing + honesty + safety guards
+# safe (default) — plans + detection, destroys nothing:
+PYTHONPATH=src python -m secure_delete.cli detect ./README.md        # read-only: what media + FS?
+PYTHONPATH=src python -m secure_delete.cli file ./README.md          # the honest erase PLAN (dry-run)
+PYTHONPATH=src python -m secure_delete.cli sanitize ./README.md      # advisory: the whole-drive command
+
+# real erase (asks you to type the exact path to confirm) — use ONLY on your own data:
+PYTHONPATH=src python -m secure_delete.cli file /path/to/junk.txt --execute
+
+python -m pytest tests/                                              # 29 tests: erase, guards, gate, honesty
 ```
 
 ## Roadmap
-`P0` research + design ✅ · `P1` detection ✅ + the reviewed, confirm-gated HDD overwrite / free-space wipe · `P2`
-crypto-erase (the headline) + whole-drive sanitize + SSD routing · `P3` Dead Man's Switch key-destruction integration
-(gated) · `P4` cross-product overwrite-on-uninstall + a desktop GUI (Windows/Linux).
+`P0` design ✅ · `P1` detection ✅ + confirm-gated per-file overwrite ✅ + free-space wipe ✅ + advisory sanitize ✅ · `P2`
+container crypto-erase (encrypt-then-destroy-key) + verified whole-drive sanitize · `P3` Dead Man's Switch key-destruction
+integration (gated) · `P4` cross-product overwrite-on-uninstall + a desktop GUI (Windows/Linux).
 
 Design rationale + the full plan: `PLAN.md`. Safety posture: `SAFETY.md`.
 

@@ -3,11 +3,27 @@
 `secure-delete` **permanently destroys data by design.** That is the whole point of the tool — and exactly why the
 scaffold ships with **no working destruction** and is built SAFE-by-default. Read this before wiring any real erase.
 
-## Posture in the scaffold
-- **No destructive code exists.** Every method in `methods.py` is a guarded stub that raises `NotImplementedError`.
-- **Dry-run is the default and the only thing that runs.** `engine.plan()` and the CLI only *describe* what would happen
-  (detection is read-only). `engine.execute()` refuses in the scaffold.
-- **Detection is read-only** — it reads `/sys`, `findmnt`, volume metadata. It never writes to the target.
+## Posture
+- **Destruction is real but gated.** Per-file overwrite + free-space wipe are implemented. They run ONLY via
+  `engine.execute` / `engine.execute_freespace`, each of which first runs the `guards` checks (refuse system paths,
+  symlinks, non-files) AND an **exact-match confirmation** (the caller must supply the resolved target path).
+- **Dry-run is the default.** `engine.plan()` + the CLI without `--execute` only describe what would happen. `--execute`
+  triggers an interactive prompt to type the exact path (or `--confirm <path>` for scripts).
+- **Whole-drive ops are advisory** — `crypto_erase_advice` / `whole_drive_sanitize_advice` return the OS command and run nothing.
+- **Detection is read-only** — reads `/sys`, `findmnt`/`lsblk`, or `Get-*` cmdlets; never writes to the target.
+
+## Red-team hardening (2026-07-20)
+An adversarial review drove these fixes (all covered by tests):
+- Protected-root logic no longer treats `/` as an ancestor (a normal file is erasable on Linux) and now **refuses files
+  sitting directly in a volume/drive root** (e.g. `C:\bootmgr`); `SystemRoot` has a hard `C:\Windows` fallback.
+- **Free-space wipe refuses the SYSTEM/boot volume** unless `--allow-system-volume`, and always keeps a dynamic margin
+  (≥ max(1 GiB, 10% of volume)); it writes one growable fill file and **verifies cleanup**, warning loudly on leftover.
+- Per-file overwrite opens a **validated fd (`O_NOFOLLOW`)** and re-checks it's a regular file, closing the check→open
+  swap window (TOCTOU).
+- A plan labeled `crypto_erase` **refuses to overwrite** unless you pass `--method overwrite` — the action always matches
+  the label, so nothing is deleted under a mislabeled plan.
+- Free-space reports `performed=False` (not a false success) when nothing was written; the destructive primitives refuse
+  to run unless called through the gated engine.
 
 ## Rules for anyone implementing the real erase (later, gated)
 1. **Own / authorized data only.** This is privacy tooling in the `shred` / `sdelete` / BleachBit / VeraCrypt lineage — for

@@ -97,8 +97,8 @@ def _probe_windows(path: str) -> TargetInfo:
 
 
 def probe(path: str) -> TargetInfo:
-    """Read-only: determine media + filesystem for `path`."""
-    path = os.path.abspath(path)
+    """Read-only: determine media + filesystem for `path` (fully resolved, so it matches what execute erases)."""
+    path = os.path.realpath(path)
     if sys.platform.startswith("linux"):
         return _probe_linux(path)
     if sys.platform.startswith("win"):

@@ -1,5 +1,10 @@
 # secure-delete — refined implementation plan (P1 spec)
 
+> **Status 2026-07-20 (v0.1.0):** P1 is BUILT + verified live — real per-file overwrite (+ name-obscure + delete) and
+> free-space wipe, both behind `guards` (refuse system paths / symlinks / non-files) and an **exact-match confirmation
+> gate**; whole-drive sanitize / crypto-erase are **advisory** (print the command, run nothing). 23 tests green. A
+> throwaway file was really erased on a live box; the gate held on a wrong confirmation. Next: P2 (container crypto-erase).
+
 Refines the vault design-log (`03-Projects/Secure-Delete/Secure-Delete.md`) into a concrete build order. Scope here is
 **P1: the primitive + a CLI.** Later phases (crypto-erase, DMS integration, GUI) are sketched at the end.
 

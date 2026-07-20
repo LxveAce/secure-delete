@@ -1,6 +1,6 @@
 [project]
 name = "secure-delete"
-version = "0.0.0-scaffold"
+version = "0.1.0"
 description = "Secure-deletion primitive (crypto-erase-first, honest per-device claims). SCAFFOLD — no destructive code."
 requires-python = ">=3.10"
 authors = [{ name = "LxveAce" }]

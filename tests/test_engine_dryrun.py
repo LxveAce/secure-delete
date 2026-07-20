@@ -1,8 +1,7 @@
-"""Safety is the thing under test: plan() is read-only, execute() + methods are guarded."""
+"""plan() is read-only; execute() refuses without an exact-match confirmation."""
 import pytest
 
-from secure_delete import engine, methods
-from secure_delete.detect import TargetInfo
+from secure_delete import engine, guards
 
 
 def test_plan_is_readonly_and_dryrun(tmp_path):
@@ -11,20 +10,25 @@ def test_plan_is_readonly_and_dryrun(tmp_path):
     res = engine.plan(str(f))
     assert res.performed is False
     assert f.read_text() == "sensitive"  # plan() never touched the file
-    assert res.claim                      # produced an honest claim
+    assert res.claim
 
 
-def test_execute_is_gated(tmp_path):
+def test_execute_without_confirmation_refuses_and_keeps_the_file(tmp_path):
     f = tmp_path / "x.txt"
     f.write_text("x")
-    res = engine.plan(str(f))
-    with pytest.raises(methods.DestructionNotEnabled):
-        engine.execute(res, confirm_token="yes")
+    plan = engine.plan(str(f), method="overwrite")  # force overwrite so we reach the confirmation gate
+    with pytest.raises(guards.ConfirmationRequired):
+        engine.execute(plan, confirm=None)
+    with pytest.raises(guards.ConfirmationRequired):
+        engine.execute(plan, confirm="yes")  # a generic 'yes' is not enough — must equal the exact path
     assert f.read_text() == "x"  # nothing destroyed
 
 
-def test_all_erase_methods_are_guarded():
-    info = TargetInfo(path="/tmp/x")
-    for fn in (methods.overwrite_file, methods.crypto_erase, methods.freespace_wipe, methods.whole_drive_sanitize):
-        with pytest.raises(methods.DestructionNotEnabled):
-            fn(info)
+def test_advisory_methods_run_nothing(tmp_path):
+    f = tmp_path / "d.txt"
+    f.write_text("d")
+    san = engine.advise_sanitize(str(f))
+    cry = engine.advise_crypto(str(f))
+    assert san.performed is False and cry.performed is False
+    assert "ADVISORY" in san.claim and "ADVISORY" in cry.claim
+    assert f.read_text() == "d"  # advisories touch nothing
