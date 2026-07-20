@@ -1,168 +1,115 @@
 # Secure Delete
 
-> **When you delete a file, it's not actually gone.** Secure Delete makes it gone — honestly, and even on an SSD.
+When you delete a file, the data doesn't actually go away. Secure Delete gets rid of it for real. On the drives where "for real" isn't possible, it tells you so instead of pretending.
 
 [![License: MIT](https://img.shields.io/github/license/LxveAce/secure-delete)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/LxveAce/secure-delete?style=social)](https://github.com/LxveAce/secure-delete/stargazers)
 
-**[Cyber Controller](https://cybercontroller.org)** · **[LxveLabs](https://lxvelabs.com)** · **[Discord](https://discord.gg/lxvelabs)**
+[Cyber Controller](https://cybercontroller.org) · [LxveLabs](https://lxvelabs.com) · [Discord](https://discord.gg/lxvelabs)
 
-A secure-deletion tool from **LxveAce / LxveLabs** — for your own or authorized data only. Same lineage as `shred` /
-`sdelete` / BleachBit / VeraCrypt, built on one honest idea: **make the data truly gone, and never claim more than the
-hardware can actually deliver.**
+A secure-deletion tool from LxveAce / LxveLabs, in the same family as `shred`, `sdelete`, BleachBit, and VeraCrypt. For data you own or are cleared to wipe. The one rule it holds itself to: never claim more than the drive can actually deliver.
 
 > [!WARNING]
-> **This tool permanently erases data** — but it's built to be careful. The **crypto-erase vault** and per-file
-> **overwrite** are real; `overwrite` is a dry-run unless you pass `--execute` + `--confirm`, and refuses symlinks and
-> non-files. Keys live in zeroized memory and never touch disk in the clear. **For your own or authorized data only.**
-> See [SAFETY.md](SAFETY.md).
+> This permanently erases data. It defaults to safe: `overwrite` does nothing without `--execute` and a matching `--confirm`, and it refuses symlinks and directories. Keys stay in zeroized memory and never touch the disk in the clear. Use it on your own data. See [SAFETY.md](SAFETY.md).
 
-## The problem: "delete" doesn't delete
-Deleting a file — or emptying the trash — only **unlinks** it. The OS forgets where the file is and marks the space
-"free," but the **actual bytes stay on the disk** until something else happens to write over them. That's why "deleted"
-files are recovered every day with off-the-shelf forensic tools. A 2025 study of second-hand drives found **~42% still
-held recoverable personal data** — bank details, IDs, documents the previous owner thought were gone. Emptying the trash
-erases nothing.
+## "Delete" doesn't delete
 
-## Why "just overwrite it" isn't enough (especially on an SSD)
-On a **hard drive**, overwriting the file's bytes really does destroy them — one pass is plenty (the old "7-pass /
-35-pass" advice is myth on modern drives). But most machines run **SSDs**, and an SSD quietly works against you: its
-controller writes your "overwrite" to a *different* physical cell and leaves the original sitting in flash the OS **can't
-even address**. A landmark UC San Diego study recovered **4–75% of data after a full-drive overwrite attempt**. So on an
-SSD, overwriting a file is best-effort at best — and any tool that calls it "unrecoverable" is lying to you.
+Deleting a file, or emptying the trash, only unlinks it. The OS forgets where the file lives and marks the space free, but the bytes sit on the disk until something else happens to write over them. That's why recovery tools pull "deleted" files off drives every day. A 2025 survey of second-hand drives found about 42% still carried recoverable personal data: bank details, IDs, documents the seller assumed were long gone.
 
-## Our answer: make it gone, quietly
-Two modes, so "delete" finally means delete:
+## Overwriting isn't enough on an SSD
 
-**1 — Quiet mode (the default).** Install it, let it run one deep **free-space clean**, then it lives quietly and cleans
-free space on a schedule. Whatever you delete the normal way gets its leftover data **overwritten** (on an HDD) and handed
-back to the drive to erase via **TRIM** (on an SSD) shortly after — with zero effort from you. Simple by design: no
-delete-hooks, no kernel drivers, it just runs.
+On a spinning hard drive, overwriting a file's bytes really does destroy them. One pass is enough; the old 7-pass and 35-pass rituals are myths on modern hardware.
 
-**2 — Vault mode (crypto-erase, even on SSD).** For data you want a hard promise on, put it in the **crypto-erase
-vault**: each file is encrypted with its own key on the way in; to shred it, the key is destroyed and the vault re-keyed,
-so the ciphertext on the flash becomes noise. This is **cryptographic erase** (NIST SP 800-88r2) — the same trick that
-wipes an iPhone in seconds. A **software** vault leaves one honest residual (a stale wrapped-master could linger in
-unaddressable flash — reachable only with that NAND slot *and* your passphrase). Bind the vault to your **TPM** with
-`init --tpm` to close even that: destroying the TPM key makes a shredded file unopenable **even given a full flash image
-and the passphrase**.
+SSDs are where it breaks down. The controller writes your "overwrite" to a fresh cell and leaves the original sitting in flash the OS can't even address. A well-known UC San Diego study recovered anywhere from 4% to 75% of data after a full-drive overwrite attempt. So on an SSD, overwriting one file is best-effort at best, and any tool that calls the result "unrecoverable" is lying to you.
 
-## What we promise — and what we don't (honesty first)
-Secure Delete **never prints a bare "unrecoverable."** Every claim is scoped to what actually happened:
-- **HDD** — overwrite is real: one pass, that file's blocks are gone.
-- **SSD** — overwriting can't reliably reach the flash (and it just wears the drive), so on SSD the quiet clean issues
-  **TRIM** — it removes deleted data from the drive's host-visible read path, but the physical erase is the controller's
-  to schedule, not a verifiable wipe. The **real protection on an SSD is full-disk encryption** (then deleted residue is
-  already ciphertext). **`secure-delete status`** tells you whether your drive is actually encrypted + TRIM-enabled, and
-  what to fix if not.
-- **Vault crypto-erase** — a per-file erase even on SSD, on two honest conditions: the data entered the vault encrypted
-  (no retroactive plaintext), and the key never leaked (no copy paged to swap/hibernation). A **software** vault leaves a
-  tiny residual (a stale wrapped-master in flash + the passphrase); a **TPM-bound** vault (`init --tpm`) closes it. Honest
-  limit: on Windows the TPM key is an SRK-wrapped blob usable only on *this* TPM — defense-in-depth, not an absolute
-  in-chip erase.
-- **Whole-drive disposal** — the drive's own hardware secure-erase (NVMe / ATA **Sanitize**) is the NIST-grade wipe; we
-  point you at it rather than pretend an overwrite did it.
+## What it does
 
-> **Status:** the honest advisor, media-aware clean, and the **crypto-erase vault** — software *and* an optional
-> **TPM-backed root** — all ship today (below). Design + rationale: [PLAN.md](PLAN.md).
+Two modes.
 
-## Honest per-device capability matrix
-| Storage / FS | File overwrite | Honest claim | Correct primitive |
+**Quiet mode** is the default. You install it once, it runs one deep free-space clean, and then it sits in the background and cleans free space on a schedule. Anything you delete the normal way gets its leftover data overwritten (on an HDD) or handed back to the drive with TRIM (on an SSD) a little later, with no effort from you. No delete hooks, no kernel driver. It just runs.
+
+**Vault mode** is for the files you want a real guarantee on. Each one is encrypted with its own key as it goes in. To shred it, the tool destroys the key and re-keys the vault, so the ciphertext left behind in flash is just noise. That's cryptographic erase (NIST SP 800-88r2), the same thing that wipes an iPhone in seconds. A software vault leaves one small gap: an old wrapped key could linger in unaddressable flash, and someone could recover a shredded file only if they had that exact NAND slot *and* your passphrase. Bind the vault to your TPM with `init --tpm` and even that gap closes. Destroy the TPM key and a shredded file can't be opened again, not even by someone holding a full image of the flash and the passphrase.
+
+## What it can and can't guarantee
+
+The tool never prints a bare "unrecoverable." What you actually get depends on the drive:
+
+- **HDD.** Overwrite works. One pass and that file's blocks are gone.
+- **SSD.** Overwriting can't reliably reach the flash, and it wears the drive for nothing, so quiet mode issues TRIM instead. TRIM drops the data from the drive's host-visible read path, but the physical erase happens whenever the controller gets around to it, so it isn't a verified wipe. The thing that actually protects deleted data on an SSD is full-disk encryption, because then the leftover bytes are already ciphertext. Run `secure-delete status` and it tells you whether your drive is encrypted and TRIM is on, and what to turn on if not.
+- **Vault (crypto-erase).** A per-file guarantee that holds even on an SSD, with two conditions: the data went in encrypted (nothing plaintext to recover), and the key never leaked (no copy paged out to swap or hibernation). A software vault leaves the small gap above; a TPM vault closes it. On Windows the TPM key is a wrapped blob kept on disk that only this machine's TPM can use, so deleting it is strong, but it's defense in depth rather than a wipe inside the chip. On Linux the key stays inside the TPM itself and gets evicted, which is a true in-hardware erase.
+- **Whole drive.** For disposal, the drive's own hardware secure-erase (NVMe or ATA Sanitize) is the real wipe. The tool points you at it rather than pretend an overwrite did the job.
+
+## Coverage by drive type
+
+| Storage / FS | File overwrite | What we'll claim | What to use instead |
 |---|---|---|---|
-| **HDD, in-place FS** | reliable (1 pass) | "current blocks overwritten; recovery infeasible" | overwrite + free-space wipe |
-| **SSD / NVMe / flash** | **unreliable** | **never "unrecoverable"** | **crypto-erase**; whole-drive sanitize for disposal |
-| **CoW/snapshot FS** (btrfs/ZFS/APFS/ReFS) | old blocks pinned by snapshots | "current blocks only" | crypto-erase; delete snapshots first |
-| **NTFS resident/compressed/sparse** | reallocated | (handled) | SDelete-style cluster overwrite + free-MFT fill |
+| HDD, in-place FS | reliable, 1 pass | "current blocks overwritten; recovery infeasible" | overwrite + free-space wipe |
+| SSD / NVMe / flash | unreliable | never "unrecoverable" | crypto-erase; hardware Sanitize to dispose |
+| CoW / snapshot FS (btrfs, ZFS, APFS, ReFS) | old blocks pinned by snapshots | "current blocks only" | crypto-erase; delete snapshots first |
+| NTFS resident / compressed / sparse | reallocated on write | (handled) | SDelete-style cluster overwrite + free-MFT fill |
 
-Default is **one pass** — multi-pass "Gutmann/DoD" is obsolete theater on modern drives (NIST, and Gutmann himself, say
-so). Secure Delete also **discloses**, rather than silently claiming to cover, the side-channels a file wipe can't reach:
-VSS shadow copies, pagefile/hiberfil, temp/caches/thumbnails, `$LogFile`/`$UsnJrnl`, directory-slack filenames, and SSD
-spare/over-provisioned area.
+Default is one pass. Multi-pass Gutmann and DoD schemes are obsolete on modern drives; NIST says so, and so does Gutmann. A file wipe also can't reach a handful of side channels, so instead of glossing over them the tool tells you they exist: VSS shadow copies, the pagefile and hiberfil, temp files and thumbnail caches, `$LogFile` and `$UsnJrnl`, filenames left in directory slack, and the SSD's spare and over-provisioned area.
 
-## What works today (v0.3 — Rust)
-- **`status` — the honest advisor.** Per volume, it tells you whether deleted data is actually protected: media (HDD/SSD),
-  full-disk-encryption state (+ scope), and TRIM — with plain advice (on an unencrypted SSD it tells you to enable FDE,
-  because overwriting can't save you there). Plus `detect` (media + filesystem).
-- **Quiet clean, media-aware.** `clean` **overwrites** free space on an **HDD** and issues **TRIM** on an **SSD** (no
-  wear, no false promise); `service` keeps it running on a schedule, and **`install`** sets it all up in one command
-  (Windows: per-user, no admin, no window) so normal deletions get completed automatically.
-- **The crypto-erase vault** — `init` · `add` · `list` · `open` · `shred` · **`rekey`**. Shred drops a file's key and
-  re-keys the vault (crypto-erase, not an overwrite); `rekey` (change the passphrase) is a **whole-vault crypto-erase**
-  that invalidates all old key material — the software way to close any stale key residue an SSD left in flash.
-- **Optional TPM / hardware root** — `init --tpm` binds the vault to this machine's TPM, so both the hardware *and* the
-  passphrase are required to open. **`hardware-shred`** rotates the TPM key so any stale wrapped-master in flash can't be
-  opened even with the passphrase — the strongest erase this tool offers. A one-time **recovery code** (+ `recover`)
-  reopens the vault if the TPM is ever lost, and **`vault-status`** tells you honestly whether the hardware key is still
-  reachable. (**Windows** via the TPM's Platform Crypto Provider — no admin needed; **Linux** via `tpm2-tools` — a persisted,
-  *evictable* sealed object, CI-verified against an emulated TPM; **macOS** Secure Enclave is designed, pending Apple hardware.)
-- **Per-file overwrite** — `overwrite` a single file (real on HDD; best-effort on SSD), behind a confirmation gate.
-- **Memory-safe Rust**, keys in `zeroize`d buffers, vetted crypto (RustCrypto **AES-256-GCM** + **Argon2id** + **HKDF**),
-  one self-contained binary.
+## What works today
 
-Being ported from **v0.1** (Python, tagged [`v0.1.0`](https://github.com/LxveAce/secure-delete/tree/v0.1.0)): media/
-filesystem detection and the advisory whole-drive sanitize command. Roadmap: [PLAN.md](PLAN.md).
+- **`status`** looks at a volume and tells you whether deleted data there is actually safe: HDD or SSD, whether it's encrypted and how much of it, and whether TRIM is on. On an unencrypted SSD it tells you to turn on full-disk encryption, because overwriting won't save you there. `detect` gives you just the media type and filesystem.
+- **Quiet clean.** `clean` overwrites free space on an HDD and issues TRIM on an SSD. `service` keeps it running on a schedule, and `install` sets the whole thing up in one command (on Windows: per-user, no admin, no visible window).
+- **The vault** — `init`, `add`, `list`, `open`, `shred`, `rekey`. Shred destroys a file's key and re-keys the vault. `rekey` changes the passphrase and re-keys everything, which is the software way to kill any stale key material an SSD left behind.
+- **TPM-backed vault.** `init --tpm` ties the vault to this machine's TPM, so opening it needs both the hardware and the passphrase. `hardware-shred` rotates the TPM key, which kills any stale wrapped key in flash for good. If the TPM ever dies you reopen with a one-time recovery code (`recover`), and `vault-status` tells you whether the hardware key is still there. Works on Windows (Platform Crypto Provider, no admin) and Linux (tpm2-tools, verified in CI against an emulated TPM). macOS Secure Enclave is designed but not built yet.
+- **`overwrite`** wipes a single file in place, real on an HDD and best-effort on an SSD, behind a confirmation gate.
+- Written in Rust. Keys are held in zeroized buffers, the crypto is RustCrypto (AES-256-GCM, Argon2id, HKDF), and it builds to one self-contained binary.
+
+The original v0.1 (Python, tagged [`v0.1.0`](https://github.com/LxveAce/secure-delete/tree/v0.1.0)) still holds the media/filesystem detection and the advisory whole-drive sanitize command, which are being ported over.
 
 ## Try it
 ```
 cargo build --release
 
-# is your drive actually protected? (the honest advisor)
+# is your drive actually protected?
 secure-delete status ./folder
 secure-delete detect ./folder
 
-# quiet mode — media-aware: overwrite on HDD, TRIM on SSD:
-secure-delete clean   ./folder                         # dry-run: shows the plan (writes nothing)
+# quiet mode: overwrite on HDD, TRIM on SSD
+secure-delete clean   ./folder                         # dry-run: shows the plan, writes nothing
 secure-delete clean   ./folder --execute               # do it (add --allow-system-volume for C:/ or /)
-secure-delete service ./folder --interval 3600         # live quietly: clean now, then hourly
+secure-delete service ./folder --interval 3600         # clean now, then hourly
 
-# vault mode — crypto-erase, even on SSD:
+# vault mode: crypto-erase, even on SSD
 export SECURE_DELETE_PASSPHRASE="your passphrase"
 secure-delete init  ./myvault                          # software vault
-secure-delete init  ./myvault --tpm                    # OR bind to this machine's TPM (prints a one-time recovery code)
-secure-delete add   ./myvault ./secret.pdf             # encrypted the moment it enters
-secure-delete shred ./myvault <id>                     # destroy the key + re-key the vault (crypto-erase)
-secure-delete hardware-shred ./myvault                 # (TPM vaults) rotate the hardware key -> closes the flash residual
-secure-delete vault-status ./myvault                   # is the hardware key still reachable? (honest, per-state)
-SECURE_DELETE_NEW_PASSPHRASE="new" secure-delete rekey ./myvault   # whole-vault crypto-erase (change passphrase)
+secure-delete init  ./myvault --tpm                    # or bind it to this machine's TPM (prints a recovery code)
+secure-delete add   ./myvault ./secret.pdf             # encrypted the moment it goes in
+secure-delete shred ./myvault <id>                     # destroy the key and re-key the vault
+secure-delete hardware-shred ./myvault                 # TPM vaults: rotate the hardware key
+secure-delete vault-status ./myvault                   # is the hardware key still reachable?
+SECURE_DELETE_NEW_PASSPHRASE="new" secure-delete rekey ./myvault   # change the passphrase, re-key everything
 
 cargo test
 ```
 
-## Run it quietly (the intended setup)
-"Lives quietly" = **install it once**, and it runs at logon and cleans on a schedule:
+## Run it in the background
+The idea behind quiet mode is that you set it up once and forget about it. `install` runs one deep clean and then registers the background cleaner to start at login.
 ```
-secure-delete install C:\ --allow-system-volume     # Windows: per-user, no admin, no window; runs one deep clean now
-secure-delete install /home --interval 21600        # pick the volume + how often (seconds)
-secure-delete install C:\ --dry-run                 # see exactly what it will register — changes nothing
-secure-delete uninstall C:\                          # stop it any time (already-cleaned data isn't restorable)
+secure-delete install C:\ --allow-system-volume     # Windows: per-user, no admin, no window; cleans once now
+secure-delete install /home --interval 21600        # pick the volume and how often (seconds)
+secure-delete install C:\ --dry-run                 # show what it would register, change nothing
+secure-delete uninstall C:\                          # stop it (already-cleaned data can't be brought back)
 ```
-- **Windows** — registers a **per-user** logon entry (`HKCU\…\Run`) that launches the background `service` **hidden**
-  (no admin, no console window) and runs one initial deep clean. `uninstall` removes the entry + its launcher.
-- **Linux** — `install` prints a ready-to-drop-in **systemd** user unit + timer and the `systemctl --user` commands to
-  enable it (native auto-registration lands alongside the Linux hardware-root work).
+On Windows this adds a per-user login entry under `HKCU\…\Run` that starts the background `service` with no visible window and no admin. On Linux, `install` prints a systemd user unit and timer you can drop in and enable; automatic registration there is coming with the Linux hardware-root work.
 
 ## Roadmap
-- **v0.1 (Python)** — per-file overwrite + guards + media/FS detection + free-space + advisory sanitize. Tagged `v0.1.0`.
-- **v0.2 (Rust)** — the **`status` advisor** + media-aware **quiet clean** (overwrite HDD / TRIM SSD) · the
-  **crypto-erase vault** (`init`/`add`/`list`/`open`/`shred`) · per-file overwrite.
-- **v0.2.3** — a whole-vault **`rekey`** (passphrase change = whole-vault crypto-erase) — the software way to close the SSD residue.
-- **v0.3.0 (Rust)** — an opt-in **TPM-backed vault root** (`init --tpm`) + **`hardware-shred`** that closes the SSD
-  residue in hardware (unopenable even with a flash image + the passphrase), a one-time **recovery kit** + `recover`, and
-  honest **`vault-status`**. Windows (TPM Platform Crypto Provider) is complete; Linux (tpm2-tools) / macOS (Secure
-  Enclave) roots are designed.
-- **v0.3.1 (Rust)** — a one-click **`install`/`uninstall`** for quiet mode: on Windows a per-user, no-admin, hidden logon
-  entry that runs the background clean + one initial deep clean; on Linux the generated systemd unit + timer.
-- **v0.3.2 (Rust) ← here** — the **Linux `tpm2-tools` hardware root**: the RWK is sealed into a persisted, **evictable** TPM
-  object (never wrapped on disk; transient blobs kept in `/dev/shm`), so `hardware-shred`'s eviction is a *true* in-hardware
-  erase — stronger than the Windows on-disk key blob. CI-verified against an emulated TPM (swtpm).
-- **Next** — the **macOS Secure Enclave** root (needs a signed Swift helper + Apple silicon); native Linux service
-  auto-registration; whole-drive hardware **Sanitize** for disposal; **fscrypt** "protected folder"; a desktop GUI.
+- **v0.1 (Python)** — per-file overwrite, guards, media/FS detection, free-space wipe, advisory sanitize. Tagged `v0.1.0`.
+- **v0.2 (Rust)** — the `status` advisor, media-aware quiet clean (overwrite on HDD, TRIM on SSD), the crypto-erase vault (`init`/`add`/`list`/`open`/`shred`), per-file overwrite.
+- **v0.2.3** — whole-vault `rekey` (a passphrase change re-keys everything), the software way to close the SSD residue.
+- **v0.3.0** — an opt-in TPM-backed vault root (`init --tpm`) and `hardware-shred` that closes the SSD residue in hardware, a one-time recovery kit with `recover`, and `vault-status`. Windows complete; Linux and macOS roots designed.
+- **v0.3.1** — one-command `install`/`uninstall` for quiet mode. On Windows a per-user, no-admin, hidden login entry that runs the background clean; on Linux a generated systemd unit and timer.
+- **v0.3.2 (current)** — the Linux tpm2-tools hardware root. The key is sealed into a persisted, evictable TPM object, so `hardware-shred` evicting it is a true in-hardware erase, stronger than the on-disk key blob Windows uses. Verified in CI against an emulated TPM.
+- **Next** — the macOS Secure Enclave root (needs a signed Swift helper and Apple hardware), automatic Linux service registration, whole-drive hardware Sanitize for disposal, fscrypt as a "protected folder", and a desktop GUI.
 
-Design rationale + the full plan: [PLAN.md](PLAN.md). Safety posture: [SAFETY.md](SAFETY.md).
+Design notes and rationale are in [PLAN.md](PLAN.md). Safety posture is in [SAFETY.md](SAFETY.md).
 
-## Guardrails
-For your own or authorized data only · SAFE-by-default · honest per-device claims · no destructive code until reviewed and
-gated · no telemetry, works offline.
+## Ground rules
+Your own data only. Safe by default. Claims scoped to what the drive can do. No telemetry, works offline.
 
 ---
-Built by **LxveAce** · part of **[LxveLabs](https://lxvelabs.com)**. Questions or ideas → **[Discord](https://discord.gg/lxvelabs)** or open an issue.
+Built by LxveAce, part of [LxveLabs](https://lxvelabs.com). Questions or ideas: [Discord](https://discord.gg/lxvelabs), or open an issue.
