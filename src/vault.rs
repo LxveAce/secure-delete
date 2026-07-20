@@ -264,4 +264,39 @@ impl Vault {
         h.entries = new_entries;
         self.store(&h)
     }
+
+    /// Re-key the WHOLE vault under a NEW passphrase — a whole-vault crypto-erase. Re-derives the root from the
+    /// new passphrase (fresh salt), rotates the master, re-seals every entry, and overwrites the old header. Any
+    /// stale copy of the OLD wrapped-master the SSD left in flash becomes useless: decrypting it needs the OLD
+    /// passphrase, which is now gone. This is the strong software guarantee (a TPM-sealed root would make it
+    /// hardware-certain regardless of whether the old passphrase is known).
+    pub fn rekey(&self, old_passphrase: &[u8], new_passphrase: &[u8]) -> Result<()> {
+        let mut h = self.load()?;
+        let old_mk = self.open_master(&h, old_passphrase)?;
+        // decrypt every entry's meta under the old master
+        let mut items: Vec<(Entry, Zeroizing<Vec<u8>>)> = vec![];
+        for e in &h.entries {
+            let pt = Zeroizing::new(Self::unseal(&old_mk, &e.meta)?);
+            items.push((e.clone(), pt));
+        }
+        // new root: fresh salt + KEK from the NEW passphrase; fresh master
+        let salt = random_bytes::<16>()?;
+        let kek = derive_kek(new_passphrase, &salt, M_COST, T_COST, P_COST)?;
+        let new_mk = Zeroizing::new(random_bytes::<KEY_LEN>()?);
+        let mut new_entries = vec![];
+        for (mut e, pt) in items {
+            e.meta = Self::seal(&new_mk, &pt)?;
+            new_entries.push(e);
+        }
+        h.kdf = Kdf {
+            alg: "argon2id".into(),
+            salt: B64.encode(salt),
+            m_cost: M_COST,
+            t_cost: T_COST,
+            p_cost: P_COST,
+        };
+        h.wrapped_master = Self::seal(&kek, new_mk.as_ref())?;
+        h.entries = new_entries;
+        self.store(&h)
+    }
 }

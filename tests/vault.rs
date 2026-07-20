@@ -60,6 +60,25 @@ fn shred_removes_file_and_rekeys_survivors() {
 }
 
 #[test]
+fn rekey_changes_the_passphrase_and_keeps_files() {
+    let tmp = scratch("rekey");
+    let f = tmp.join("f.txt");
+    fs::write(&f, b"payload").unwrap();
+    let v = Vault::new(tmp.join("vault"));
+    v.init(b"old-pass").unwrap();
+    let id = v.add(b"old-pass", &f).unwrap();
+
+    v.rekey(b"old-pass", b"new-pass").unwrap();
+
+    // the OLD passphrase no longer opens the vault (old key material is dead)
+    assert!(v.open(b"old-pass", &id, &tmp.join("out")).is_err());
+    // the NEW passphrase works and the file is intact
+    let out = v.open(b"new-pass", &id, &tmp.join("out")).unwrap();
+    assert_eq!(fs::read(&out).unwrap(), b"payload");
+    let _ = fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn overwrite_needs_confirmation_and_refuses_dirs() {
     let tmp = scratch("ow");
     let f = tmp.join("junk.txt");

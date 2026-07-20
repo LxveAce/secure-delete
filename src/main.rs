@@ -27,6 +27,8 @@ enum Cmd {
     Open { dir: PathBuf, id: String, out: PathBuf },
     /// Crypto-erase a file: destroy its key + re-key the vault (truly unrecoverable, even on SSD).
     Shred { dir: PathBuf, id: String },
+    /// Re-key the WHOLE vault under a new passphrase — a whole-vault crypto-erase (invalidates old key material on SSD).
+    Rekey { dir: PathBuf },
     /// Overwrite + delete a file in place (real on HDD; best-effort on SSD — use the vault for a guarantee).
     Overwrite {
         file: PathBuf,
@@ -66,16 +68,16 @@ enum Cmd {
 
 const GIB: f64 = (1u64 << 30) as f64;
 
-/// Read the vault passphrase. Prefers the `SECURE_DELETE_PASSPHRASE` env var; otherwise reads a line
-/// from stdin. (A hidden terminal prompt is a follow-up — kept dependency-free for now.)
-fn passphrase(_confirm: bool) -> Result<Zeroizing<Vec<u8>>> {
-    if let Ok(p) = std::env::var("SECURE_DELETE_PASSPHRASE") {
+/// Read a passphrase. Prefers the given env var; otherwise reads a line from stdin. (A hidden terminal
+/// prompt is a follow-up — kept dependency-free for now.)
+fn read_pass(env: &str, prompt: &str) -> Result<Zeroizing<Vec<u8>>> {
+    if let Ok(p) = std::env::var(env) {
         if !p.is_empty() {
             return Ok(Zeroizing::new(p.into_bytes()));
         }
     }
     use std::io::Write;
-    eprint!("Vault passphrase (SECURE_DELETE_PASSPHRASE to avoid the echo): ");
+    eprint!("{prompt} (or set {env}): ");
     std::io::stderr().flush().ok();
     let mut line = String::new();
     std::io::stdin().read_line(&mut line).context("reading passphrase")?;
@@ -84,6 +86,10 @@ fn passphrase(_confirm: bool) -> Result<Zeroizing<Vec<u8>>> {
         bail!("empty passphrase");
     }
     Ok(Zeroizing::new(p.into_bytes()))
+}
+
+fn passphrase(_confirm: bool) -> Result<Zeroizing<Vec<u8>>> {
+    read_pass("SECURE_DELETE_PASSPHRASE", "Vault passphrase")
 }
 
 fn main() -> Result<()> {
@@ -108,6 +114,12 @@ fn main() -> Result<()> {
         Cmd::Shred { dir, id } => {
             Vault::new(&dir).shred(&passphrase(false)?, &id)?;
             println!("shredded {id} + re-keyed the vault");
+        }
+        Cmd::Rekey { dir } => {
+            let old = read_pass("SECURE_DELETE_PASSPHRASE", "Current passphrase")?;
+            let new = read_pass("SECURE_DELETE_NEW_PASSPHRASE", "New passphrase")?;
+            Vault::new(&dir).rekey(&old, &new)?;
+            println!("re-keyed the vault under a new passphrase — old key material is now useless.");
         }
         Cmd::Overwrite { file, execute, confirm } => {
             let shown = file.to_string_lossy().to_string();

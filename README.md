@@ -79,8 +79,9 @@ spare/over-provisioned area.
   because overwriting can't save you there). Plus `detect` (media + filesystem).
 - **Quiet clean, media-aware.** `clean` **overwrites** free space on an **HDD** and issues **TRIM** on an **SSD** (no
   wear, no false promise); `service` keeps it running on a schedule so normal deletions get completed automatically.
-- **The crypto-erase vault** — `init` · `add` · `list` · `open` · `shred`; destroy the key + re-key → unrecoverable **even
-  on an SSD**.
+- **The crypto-erase vault** — `init` · `add` · `list` · `open` · `shred` · **`rekey`**. Shred a key → unrecoverable even
+  on an SSD; `rekey` (change the passphrase) is a **whole-vault crypto-erase** that invalidates all old key material —
+  the strong way to close any stale key residue an SSD may have left in flash.
 - **Per-file overwrite** — `overwrite` a single file (real on HDD; best-effort on SSD), behind a confirmation gate.
 - **Memory-safe Rust**, keys in `zeroize`d buffers, vetted crypto (RustCrypto **AES-256-GCM** + **Argon2id**), one
   self-contained binary.
@@ -106,6 +107,7 @@ export SECURE_DELETE_PASSPHRASE="your passphrase"
 secure-delete init  ./myvault
 secure-delete add   ./myvault ./secret.pdf             # encrypted the moment it enters
 secure-delete shred ./myvault <id>                     # destroy the key -> unrecoverable
+SECURE_DELETE_NEW_PASSPHRASE="new" secure-delete rekey ./myvault   # whole-vault crypto-erase (change passphrase)
 
 cargo test
 ```
@@ -121,9 +123,11 @@ A one-click installer that registers the service and runs the first deep clean i
 - **v0.1 (Python)** — per-file overwrite + guards + media/FS detection + free-space + advisory sanitize. Tagged `v0.1.0`.
 - **v0.2 (Rust) ← here** — the **`status` advisor** + media-aware **quiet clean** (overwrite HDD / TRIM SSD) · the
   **crypto-erase vault** (`init`/`add`/`list`/`open`/`shred`) · per-file overwrite.
+- **v0.2.3** — a whole-vault **`rekey`** (passphrase change = whole-vault crypto-erase) — the software way to close the
+  SSD key residue.
 - **Next** — a one-click installer (register the service + first deep clean); hardware disposal (NVMe/ATA **Sanitize**
-  crypto-erase); a **TPM / Secure-Enclave-backed vault root** for a hardware-guaranteed shred (closes the SSD residual);
-  transparent per-file crypto via **fscrypt** (a "protected folder", no manual vault); a desktop GUI.
+  crypto-erase); a **TPM / Secure-Enclave-backed vault root** for a *hardware-guaranteed* shred (closes the residual even
+  if the old passphrase is known); transparent per-file crypto via **fscrypt** (a "protected folder", no manual vault); a desktop GUI.
 
 Design rationale + the full plan: [PLAN.md](PLAN.md). Safety posture: [SAFETY.md](SAFETY.md).
 
