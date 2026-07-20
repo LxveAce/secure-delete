@@ -1,16 +1,15 @@
 # Secure Delete
 
-> **Make deleted data actually unrecoverable — honestly, per device.**
-> Crypto-erase first · overwrite where it's real (HDD) · never a false promise.
+> **When you delete a file, it's not actually gone.** Secure Delete makes it gone — honestly, and even on an SSD.
 
 [![License: MIT](https://img.shields.io/github/license/LxveAce/secure-delete)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/LxveAce/secure-delete?style=social)](https://github.com/LxveAce/secure-delete/stargazers)
 
 **[Cyber Controller](https://cybercontroller.org)** · **[LxveLabs](https://lxvelabs.com)** · **[Discord](https://discord.gg/lxvelabs)**
 
-A secure-deletion primitive + CLI from **LxveAce / LxveLabs**. When you delete a file, make the original data genuinely
-unrecoverable while the space returns as normal free space — the reusable "secure delete" building block every LxveLabs
-product can call. Same lineage as `shred` / `sdelete` / BleachBit / VeraCrypt: **for your own or authorized data only.**
+A secure-deletion tool from **LxveAce / LxveLabs** — for your own or authorized data only. Same lineage as `shred` /
+`sdelete` / BleachBit / VeraCrypt, built on one honest idea: **make the data truly gone, and never claim more than the
+hardware can actually deliver.**
 
 > [!WARNING]
 > **This tool permanently erases data** — but it is **SAFE by default.** Everything is a dry-run unless you pass
@@ -18,13 +17,40 @@ product can call. Same lineage as `shred` / `sdelete` / BleachBit / VeraCrypt: *
 > and non-files. Per-file overwrite and free-space wipe are real; whole-drive erase is **advisory** (it prints the OS
 > command, runs nothing). **For your own or authorized data only.** See [SAFETY.md](SAFETY.md).
 
-## The one idea that shapes everything
-Overwriting a deleted file works on a **magnetic HDD** but is **unreliable on an SSD** — the flash translation layer sends
-your overwrite to a *different* physical cell and leaves the original in spare NAND the OS can't even address (proven by
-UC San Diego, USENIX FAST'11; TRIM is only a hint, not an erase). The robust, media-independent guarantee is
-**cryptographic erase: keep data encrypted at rest, and "delete" by destroying the key** (NIST SP 800-88 Purge-level,
-instant). So Secure Delete **leads with crypto-erase** and uses overwrite as an honest **HDD-only** supplement — and it
-**never prints a bare "unrecoverable."** Every claim is scoped to what the mechanism actually did, on the drive you have.
+## The problem: "delete" doesn't delete
+Deleting a file — or emptying the trash — only **unlinks** it. The OS forgets where the file is and marks the space
+"free," but the **actual bytes stay on the disk** until something else happens to write over them. That's why "deleted"
+files are recovered every day with off-the-shelf forensic tools. A 2025 study of second-hand drives found **~42% still
+held recoverable personal data** — bank details, IDs, documents the previous owner thought were gone. Emptying the trash
+erases nothing.
+
+## Why "just overwrite it" isn't enough (especially on an SSD)
+On a **hard drive**, overwriting the file's bytes really does destroy them — one pass is plenty (the old "7-pass /
+35-pass" advice is myth on modern drives). But most machines run **SSDs**, and an SSD quietly works against you: its
+controller writes your "overwrite" to a *different* physical cell and leaves the original sitting in flash the OS **can't
+even address**. A landmark UC San Diego study recovered **4–75% of data after a full-drive overwrite attempt**. So on an
+SSD, overwriting a file is best-effort at best — and any tool that calls it "unrecoverable" is lying to you.
+
+## Our answer: destroy the *key*, not the bytes
+You can't reliably erase the bytes on an SSD — so don't chase them. **Encrypt each file with its own random key the moment
+it enters the Secure Delete vault; to "shred" it, destroy that key** (and re-key the vault). The ciphertext scattered
+across the flash instantly becomes permanent noise — truly unrecoverable, without overwriting a single cell. This is
+**cryptographic erase**, a method NIST recognizes (SP 800-88r2), and it's how Apple wipes an iPhone in seconds: *"erasing
+the key renders all files cryptographically inaccessible."*
+
+## What we promise — and what we don't (honesty first)
+Secure Delete **never prints a bare "unrecoverable."** Every claim is scoped to what actually happened:
+- **HDD file overwrite** — real: one pass, that file's blocks are unrecoverable.
+- **SSD file overwrite** — **best-effort only.** We say so every time, and point you to the vault.
+- **Vault crypto-erase** — **truly unrecoverable**, on two honest conditions: the data must have entered the vault
+  encrypted (we can't un-write plaintext that already hit the flash), and the key must never have leaked (no key backup,
+  no copy paged to swap/hibernation). Miss either and the guarantee is void — so the design is built to hold both (a
+  passphrase-derived key that's never written to disk, and a vault re-key on every shred).
+- **Whole-drive disposal** — we print the exact vendor secure-erase / sanitize command; we don't wrap a drive-wipe we
+  can't verify.
+
+> **Status:** overwrite + detection + guards ship today (below); the **crypto-erase vault is in active development** —
+> it's the headline SSD answer and the reason this tool exists. Design + rationale: [PLAN.md](PLAN.md).
 
 ## Honest per-device capability matrix
 | Storage / FS | File overwrite | Honest claim | Correct primitive |

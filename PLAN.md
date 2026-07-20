@@ -44,9 +44,25 @@ from the detected media/FS (HDD in-place FS → overwrite; SSD or CoW → crypto
 - `plan()` is pure/read-only ⇒ never touches the target.
 
 ## Later phases (out of P1 scope — sketched)
-- **P2 crypto-erase:** manage an encrypted container/volume (LUKS/VeraCrypt/BitLocker) and destroy the key; SSD routing (best-effort overwrite + TRIM, *labeled*); whole-drive ATA-Secure-Erase / NVMe-Sanitize for disposal (verify, don't trust — FAST'11 firmware bugs). Side-channel cleanup (consent-gated, each destructive step opt-in).
+- **P2 — the crypto-erase vault (the SSD solve, in development).** The honest way to give SSD users real per-file unrecoverability (overwrite can't — FTL / wear-leveling). NIST SP 800-88r2 recognizes **cryptographic erase** as a Purge method; Apple's Effaceable Storage is the reference ("erasing the key renders all files cryptographically inaccessible"). Design:
+  - **Managed vault, encrypt-on-INGEST** (never encrypt-existing-in-place): files are encrypted as they enter, so plaintext never lands on flash as a normal file. NIST's hard precondition — CE is void if plaintext was ever written.
+  - **Per file:** a random 256-bit DEK; AEAD (AES-256-GCM or ChaCha20-Poly1305) with a **unique nonce** per file/segment (GCM nonce reuse is catastrophic) + auth tag.
+  - **Keystore:** each DEK wrapped under a master KEK (AES Key Wrap, RFC 3394/5649); the master KEK is derived from the user passphrase via **Argon2id** and **never persisted in plaintext** (commodity SSDs have no effaceable hardware, so the root secret must be un-persisted or in a TPM/token).
+  - **Shred a file = drop its DEK AND re-key the whole vault** (fresh master, re-wrap only survivors, atomic swap, destroy the old master) — so any stale wrapped-DEK copy the FTL scattered across flash is now under a **dead** key = permanent noise. This concentrates "must be reliably destroyed" to one small root secret.
+  - **Honesty gates (keep the "unrecoverable" claim true):** only data that entered encrypted (no retroactive plaintext); keys never leak (no backup/escrow; guard swap/hibernation via mlock + zeroize); against a nation-state NIST still says physically destroy. Sources: NIST SP 800-88r2, Apple Platform Security, Wei et al. FAST'11, Meijer & van Gastel (CVE-2018-12038 — a real self-encrypting drive that failed exactly this way).
+  - Whole-drive ATA-Secure-Erase / NVMe-Sanitize stays **advisory**; per-file SSD overwrite stays **labeled best-effort**.
 - **P3 DMS integration:** the wipe path destroys keys (crypto-erase). **Owner + HW-gated (irreversibility gate).**
 - **P4:** cross-product overwrite-on-uninstall hook (detached-helper design in the vault note) + a standalone GUI (Win/Linux).
 
+## Language (recommended: Rust)
+A grounded eval (C / Rust / Go / Python for this exact tool) points to **Rust**. The vault's whole job is destroying key
+material, which needs reliable secret-zeroing (`zeroize` / `secrecy`) — Go's GC can copy a key to unwipeable memory (its
+fix is Linux-only + experimental; this tool is Win+Linux), C adds the memory-unsafety class we exist to prevent, and
+Python can't zero secrets or ship a trustworthy single binary. Field precedent: modern key tools (`rage`, `ripgrep`) are
+Rust; the old disk tools (`shred`, `cryptsetup`, VeraCrypt) are C. The Python v0.1 here is an **executable spec**, not code
+to preserve. _Toolchain note:_ `rustup` isn't installed on the current dev box (only Go is) — building Rust needs a
+toolchain install or CI-based verification.
+
 ## Open decisions (owner) — see HANDOFF.md
-Product name · graduate to own repo + public/private · language commit (Python scaffold; Rust/Go rewrite optional for ship) · crypto-at-rest adoption across products (the real enabler) · free vs paid · how far to take destructive side-channel cleanup.
+Confirm the **Rust** rewrite (+ how to build: install `rustup` vs CI-verify) · crypto-at-rest adoption across products
+(the real enabler) · free vs paid · how far to take destructive side-channel cleanup.
