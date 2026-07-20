@@ -25,7 +25,8 @@ jobs:
       - name: Install tpm2-tools + swtpm + abrmd (resource manager)
         run: |
           sudo apt-get update
-          sudo apt-get install -y tpm2-tools tpm2-abrmd swtpm swtpm-tools libtss2-tcti-swtpm0 dbus dbus-user-session
+          sudo apt-get install -y tpm2-tools tpm2-abrmd swtpm swtpm-tools \
+            libtss2-tcti-swtpm0 libtss2-tcti-tabrmd0 dbus dbus-user-session
       - name: Start the software TPM (swtpm)
         run: |
           mkdir -p /tmp/swtpm
@@ -43,13 +44,13 @@ jobs:
           TPM2TOOLS_TCTI: "tabrmd:bus_type=session"
           SD_REQUIRE_TPM: "1"
         run: |
-          dbus-run-session -- bash -c '
-            set -x
-            tpm2-abrmd --session --tcti=swtpm:host=127.0.0.1,port=2321 --logger=stdout > /tmp/abrmd.log 2>&1 &
-            AB=$!
-            sleep 3
-            echo "--- abrmd alive? ---"; ps -p $AB || echo "ABRMD EXITED"
-            echo "--- abrmd.log ---"; cat /tmp/abrmd.log || true
-            echo "--- getcap via tabrmd ---"; tpm2_getcap properties-fixed; echo "getcap rc=$?"
+          dbus-run-session -- bash -euxo pipefail -c '
+            tpm2-abrmd --session --tcti=swtpm:host=127.0.0.1,port=2321 &
+            for i in $(seq 1 20); do
+              if tpm2_getcap properties-fixed >/dev/null 2>&1; then echo "abrmd reachable after ${i}s"; break; fi
+              sleep 1
+            done
+            # Hard-fail (set -e) if still unreachable, so the tests below cannot silently skip.
+            tpm2_getcap properties-fixed | head -n 3
             cargo test --test keyroot_linux -- --nocapture --test-threads=1
           '
