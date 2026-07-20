@@ -1,0 +1,43 @@
+name: build-release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: secure-delete-linux-x86_64
+          - os: windows-latest
+            asset: secure-delete-windows-x86_64.exe
+          - os: macos-latest
+            asset: secure-delete-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: Package the binary + checksum
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp target/release/secure-delete.exe "${{ matrix.asset }}"
+          else
+            cp target/release/secure-delete "${{ matrix.asset }}"
+          fi
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          fi
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256
