@@ -12,10 +12,10 @@ A secure-deletion tool from **LxveAce / LxveLabs** — for your own or authorize
 hardware can actually deliver.**
 
 > [!WARNING]
-> **This tool permanently erases data** — but it is **SAFE by default.** Everything is a dry-run unless you pass
-> `--execute`, which then requires you to **type the exact target path** to confirm. It refuses system paths, symlinks,
-> and non-files. Per-file overwrite and free-space wipe are real; whole-drive erase is **advisory** (it prints the OS
-> command, runs nothing). **For your own or authorized data only.** See [SAFETY.md](SAFETY.md).
+> **This tool permanently erases data** — but it's built to be careful. The **crypto-erase vault** and per-file
+> **overwrite** are real; `overwrite` is a dry-run unless you pass `--execute` + `--confirm`, and refuses symlinks and
+> non-files. Keys live in zeroized memory and never touch disk in the clear. **For your own or authorized data only.**
+> See [SAFETY.md](SAFETY.md).
 
 ## The problem: "delete" doesn't delete
 Deleting a file — or emptying the trash — only **unlinks** it. The OS forgets where the file is and marks the space
@@ -65,36 +65,43 @@ so). Secure Delete also **discloses**, rather than silently claiming to cover, t
 VSS shadow copies, pagefile/hiberfil, temp/caches/thumbnails, `$LogFile`/`$UsnJrnl`, directory-slack filenames, and SSD
 spare/over-provisioned area.
 
-## What works today
-- **Real per-file secure erase** — overwrite the file's bytes, obscure its name, delete it — behind a hard **guard**
-  (refuses system paths / symlinks / non-files) and an **exact-match confirmation gate** (you type the full path).
-- **Free-space wipe** — fill unallocated space with random data (leaving a safety margin) then remove it, to erase
-  previously-deleted file data. Confirm-gated.
-- **Advisory whole-drive sanitize / crypto-erase** — prints the exact `nvme` / `hdparm` / `cryptsetup` command for the
-  detected drive and **runs nothing** (a drive wipe is too dangerous to wrap-and-run).
-- **Read-only detection** of media (HDD vs SSD) + filesystem — Linux (`findmnt`/`lsblk`) and Windows (`Get-PhysicalDisk`).
-- **Honest routing + claims** — crypto-erase recommended on SSD / copy-on-write / unknown media; overwrite is labeled
-  best-effort on flash; never a bare "unrecoverable"; residual copies are always disclosed.
+## What works today (v0.2 — Rust)
+- **The crypto-erase vault — the SSD solve.** Encrypt files into a vault (AES-256-GCM, a unique key per file), then
+  `list` / `open` them — and **`shred`**: destroy a file's key and re-key the vault, so its ciphertext becomes permanent
+  noise, unrecoverable **even on an SSD**. Commands: `init` · `add` · `list` · `open` · `shred`.
+- **Per-file overwrite.** `overwrite` a file in place (real on HDD; best-effort on SSD, honestly labeled), behind a
+  confirmation gate; dry-run by default.
+- **Memory-safe Rust**, keys held in `zeroize`d buffers, vetted crypto (RustCrypto **AES-256-GCM** + **Argon2id**), a
+  single self-contained binary.
+
+Being ported from **v0.1** (Python, tagged [`v0.1.0`](https://github.com/LxveAce/secure-delete/tree/v0.1.0)): read-only
+media/filesystem detection, free-space wipe, and the advisory whole-drive sanitize command. Roadmap: [PLAN.md](PLAN.md).
 
 ## Try it
 ```
-# safe (default) — plans + detection, destroys nothing:
-PYTHONPATH=src python -m secure_delete.cli detect ./README.md        # read-only: what media + FS?
-PYTHONPATH=src python -m secure_delete.cli file ./README.md          # the honest erase PLAN (dry-run)
-PYTHONPATH=src python -m secure_delete.cli sanitize ./README.md      # advisory: the whole-drive command
+cargo build --release
+export SECURE_DELETE_PASSPHRASE="your vault passphrase"    # or you'll be prompted
 
-# real erase (asks you to type the exact path to confirm) — use ONLY on your own data:
-PYTHONPATH=src python -m secure_delete.cli file /path/to/junk.txt --execute
+# the crypto-erase vault — the SSD answer:
+secure-delete init  ./myvault
+secure-delete add   ./myvault ./secret.pdf     # encrypted the moment it enters
+secure-delete list  ./myvault
+secure-delete open  ./myvault <id> ./out       # decrypt it back out
+secure-delete shred ./myvault <id>             # destroy the key -> unrecoverable, even on SSD
 
-python -m pytest tests/                                              # 29 tests: erase, guards, gate, honesty
+# per-file overwrite (real on HDD, best-effort on SSD):
+secure-delete overwrite ./junk.txt --execute --confirm "./junk.txt"
+
+cargo test    # vault round-trip · wrong-passphrase · shred + re-key · overwrite guard
 ```
 
 ## Roadmap
-`P0` design ✅ · `P1` detection ✅ + confirm-gated per-file overwrite ✅ + free-space wipe ✅ + advisory sanitize ✅ · `P2`
-container crypto-erase (encrypt-then-destroy-key) + verified whole-drive sanitize · `P3` Dead Man's Switch key-destruction
-integration (gated) · `P4` cross-product overwrite-on-uninstall + a desktop GUI (Windows/Linux).
+- **v0.1 (Python)** — per-file overwrite + guards + media/FS detection + free-space + advisory sanitize. Tagged `v0.1.0`.
+- **v0.2 (Rust) ← here** — the **crypto-erase vault** (`init`/`add`/`list`/`open`/`shred`) + per-file overwrite.
+- **Next** — port detection / free-space / sanitize to Rust; a whole-vault re-key (passphrase change); a TPM/token-backed
+  root for a hardware-guaranteed shred; Dead Man's Switch key-destruction integration; a desktop GUI.
 
-Design rationale + the full plan: `PLAN.md`. Safety posture: `SAFETY.md`.
+Design rationale + the full plan: [PLAN.md](PLAN.md). Safety posture: [SAFETY.md](SAFETY.md).
 
 ## Guardrails
 For your own or authorized data only · SAFE-by-default · honest per-device claims · no destructive code until reviewed and

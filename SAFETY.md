@@ -1,9 +1,14 @@
-# SAFETY — why this scaffold destroys nothing (yet)
+# SAFETY
 
-`secure-delete` **permanently destroys data by design.** That is the whole point of the tool — and exactly why the
-scaffold ships with **no working destruction** and is built SAFE-by-default. Read this before wiring any real erase.
+`secure-delete` **permanently destroys data by design** — that's the whole point. It's built to be careful. This is the posture and the honest limits.
 
-## Posture
+## v0.2 (Rust) — current posture
+- **Dry-run defaults.** `overwrite` does nothing without `--execute` + a matching `--confirm`; it refuses symlinks and non-files.
+- **The vault destroys the key, not the bytes.** `shred` drops a file's key and re-keys the vault. Honest residual on a commodity SSD (no effaceable hardware): a stale copy of the *old wrapped-master* could linger in flash — recovering a shredded file would need that tiny slot from unaddressable NAND *and* the passphrase. Far harder than recovering a plaintext file, but not a hardware-guaranteed zero (a passphrase change / TPM-backed root closes it — see `PLAN.md` P2).
+- **Keys** live in `zeroize`d buffers and are never written to disk in the clear; vetted crypto (RustCrypto AES-256-GCM + Argon2id).
+- **Own / authorized data only.** No telemetry; works offline.
+
+## Design posture (from v0.1 — Python, tagged `v0.1.0`; the principles still hold)
 - **Destruction is real but gated.** Per-file overwrite + free-space wipe are implemented. They run ONLY via
   `engine.execute` / `engine.execute_freespace`, each of which first runs the `guards` checks (refuse system paths,
   symlinks, non-files) AND an **exact-match confirmation** (the caller must supply the resolved target path).
