@@ -14,6 +14,8 @@
 //! never pull a `windows-sys`-class dependency (which breaks the gnu build's `dlltool` link).
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use hkdf::Hkdf;
+#[cfg(target_os = "linux")]
+use sha2::Digest;
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
@@ -307,8 +309,147 @@ impl KeyRoot for WindowsTpmRoot {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// Non-Windows providers — stubs for now (bodies designed, implemented later). They compile everywhere
-// and honestly report "unavailable" so a vault written for them can't be silently opened as software.
+// Linux — a TPM 2.0 via `tpm2-tools`. The RWK is sealed into a PERSISTENT keyedhash object and the
+// object is evicted on destroy — a TRUE in-hardware erase (the RWK lives only in TPM NV, never wrapped
+// on disk). Transient context/blob files go in /dev/shm (RAM) so they never land on the SSD.
+// ---------------------------------------------------------------------------------------------------
+
+/// TPM-backed key root on Linux via `tpm2-tools` (shell-out, no `windows-sys`-class dependency).
+#[cfg(target_os = "linux")]
+pub struct LinuxTpm2Root;
+
+#[cfg(target_os = "linux")]
+fn hexs(b: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(b.len() * 2);
+    for x in b {
+        let _ = write!(s, "{x:02x}");
+    }
+    s
+}
+
+#[cfg(target_os = "linux")]
+fn tpm2(args: &[&str], stdin: Option<&[u8]>) -> Result<(i32, Vec<u8>, String), KeyRootError> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(args[0])
+        .args(&args[1..])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| KeyRootError::ToolUnavailable)?;
+    {
+        let mut si = child.stdin.take().ok_or(KeyRootError::ToolUnavailable)?;
+        if let Some(b) = stdin {
+            let _ = si.write_all(b);
+        }
+    }
+    let out = child.wait_with_output().map_err(|_| KeyRootError::ToolUnavailable)?;
+    Ok((out.status.code().unwrap_or(-1), out.stdout, String::from_utf8_lossy(&out.stderr).into_owned()))
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxTpm2Root {
+    /// A usable TPM 2.0 is present iff `tpm2_getcap` talks to it.
+    pub fn probe() -> bool {
+        matches!(tpm2(&["tpm2_getcap", "properties-fixed"], None), Ok((0, _, _)))
+    }
+
+    /// Deterministic persistent handle in the owner range (0x8101_0000..=0x8101_ffff) from the key id.
+    fn handle(key_id: &str) -> String {
+        let mut h = Sha256::new();
+        h.update(key_id.as_bytes());
+        let d = h.finalize();
+        let off = ((d[0] as u16) << 8) | d[1] as u16;
+        format!("0x8101{off:04x}")
+    }
+
+    fn is_persistent(handle: &str) -> bool {
+        match tpm2(&["tpm2_getcap", "handles-persistent"], None) {
+            Ok((0, out, _)) => String::from_utf8_lossy(&out).to_lowercase().contains(&handle.to_lowercase()),
+            _ => false,
+        }
+    }
+
+    /// A RAM-backed work dir (so transient TPM blobs never hit the SSD), removed by the caller.
+    fn work_dir() -> Result<std::path::PathBuf, KeyRootError> {
+        let base = if std::path::Path::new("/dev/shm").is_dir() {
+            std::path::PathBuf::from("/dev/shm")
+        } else {
+            std::env::temp_dir()
+        };
+        let r = crate::crypto::random_bytes::<8>().map_err(|_| KeyRootError::Other(1))?;
+        let d = base.join(format!("secure-delete-tpm-{}", hexs(&r)));
+        std::fs::create_dir(&d).map_err(|_| KeyRootError::Other(2))?;
+        Ok(d)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl KeyRoot for LinuxTpm2Root {
+    fn provider_id(&self) -> &'static str {
+        PROVIDER_LINUX
+    }
+    fn seal_rwk(&self, ctx: &RootCtx, rwk: &[u8; RWK_LEN]) -> Result<String, KeyRootError> {
+        let handle = Self::handle(&ctx.key_id);
+        if Self::is_persistent(&handle) {
+            return Err(KeyRootError::KeyExists);
+        }
+        let wd = Self::work_dir()?;
+        let path = |n: &str| wd.join(n).to_string_lossy().into_owned();
+        let (pctx, spub, spriv, sctx) = (path("primary.ctx"), path("seal.pub"), path("seal.priv"), path("seal.ctx"));
+        let run = |args: &[&str], stdin: Option<&[u8]>| -> Result<(), KeyRootError> {
+            match tpm2(args, stdin)? {
+                (0, _, _) => Ok(()),
+                _ => Err(KeyRootError::CryptoFail),
+            }
+        };
+        let result = (|| {
+            run(&["tpm2_createprimary", "-C", "o", "-c", &pctx], None)?;
+            run(&["tpm2_create", "-C", &pctx, "-u", &spub, "-r", &spriv, "-i", "-"], Some(rwk))?;
+            run(&["tpm2_load", "-C", &pctx, "-u", &spub, "-r", &spriv, "-c", &sctx], None)?;
+            run(&["tpm2_evictcontrol", "-C", "o", "-c", &sctx, &handle], None)?;
+            Ok(())
+        })();
+        let _ = std::fs::remove_dir_all(&wd);
+        result.map(|_| String::new()) // RWK lives in the TPM; nothing to store on disk.
+    }
+    fn unseal_rwk(&self, ctx: &RootCtx, _wrapped: &str) -> Result<Zeroizing<[u8; RWK_LEN]>, KeyRootError> {
+        let handle = Self::handle(&ctx.key_id);
+        if !Self::is_persistent(&handle) {
+            return Err(KeyRootError::KeyNotFound);
+        }
+        let (code, out, _e) = tpm2(&["tpm2_unseal", "-c", &handle], None)?;
+        if code != 0 {
+            return Err(KeyRootError::CryptoFail);
+        }
+        if out.len() != RWK_LEN {
+            return Err(KeyRootError::CryptoFail);
+        }
+        let mut arr = [0u8; RWK_LEN];
+        arr.copy_from_slice(&out[..RWK_LEN]);
+        Ok(Zeroizing::new(arr))
+    }
+    fn destroy(&self, ctx: &RootCtx) -> Result<(), KeyRootError> {
+        let handle = Self::handle(&ctx.key_id);
+        if !Self::is_persistent(&handle) {
+            return Ok(()); // idempotent
+        }
+        match tpm2(&["tpm2_evictcontrol", "-C", "o", "-c", &handle], None)? {
+            (0, _, _) => Ok(()),
+            (code, _, _) => Err(KeyRootError::Other(code)),
+        }
+    }
+    fn key_present(&self, ctx: &RootCtx) -> Result<bool, KeyRootError> {
+        Ok(Self::is_persistent(&Self::handle(&ctx.key_id)))
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Other non-Windows/Linux providers (notably macOS Secure Enclave) — honest stubs for now. macOS needs
+// a signed Swift Security.framework helper (SE keys are EC-P256, wrap via ECIES) + real Apple silicon to
+// build/test, so it reports "unavailable" rather than shipping an unverifiable path.
 // ---------------------------------------------------------------------------------------------------
 
 /// A key root whose provider isn't implemented/usable on this build. Honest by construction.
@@ -338,6 +479,8 @@ pub fn root_for_provider(provider: &str) -> Box<dyn KeyRoot> {
     match provider {
         #[cfg(windows)]
         PROVIDER_WINDOWS => Box::new(WindowsTpmRoot),
+        #[cfg(target_os = "linux")]
+        PROVIDER_LINUX => Box::new(LinuxTpm2Root),
         _ => Box::new(UnavailableRoot(provider_static(provider))),
     }
 }
@@ -368,7 +511,11 @@ pub fn hardware_available() -> bool {
     {
         WindowsTpmRoot::probe()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        LinuxTpm2Root::probe()
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         false
     }

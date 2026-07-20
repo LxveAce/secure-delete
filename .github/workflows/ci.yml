@@ -15,3 +15,30 @@ jobs:
         run: cargo build --verbose
       - name: Test
         run: cargo test --verbose
+
+  # Genuinely exercise the Linux tpm2-tools key root against an emulated software TPM (swtpm).
+  tpm-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install tpm2-tools + swtpm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tpm2-tools swtpm swtpm-tools
+      - name: Start + initialise the software TPM
+        run: |
+          mkdir -p /tmp/swtpm
+          swtpm socket \
+            --tpmstate dir=/tmp/swtpm \
+            --ctrl type=tcp,port=2322 \
+            --server type=tcp,port=2321 \
+            --tpm2 --flags not-need-init --daemon
+          sleep 1
+          export TPM2TOOLS_TCTI="mssim:host=127.0.0.1,port=2321"
+          tpm2_startup -c
+          tpm2_getcap properties-fixed | head -n 3
+      - name: Run the Linux TPM tests against the emulated TPM
+        env:
+          TPM2TOOLS_TCTI: "mssim:host=127.0.0.1,port=2321"
+        run: cargo test --test keyroot_linux -- --nocapture

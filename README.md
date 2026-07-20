@@ -93,7 +93,8 @@ spare/over-provisioned area.
   passphrase are required to open. **`hardware-shred`** rotates the TPM key so any stale wrapped-master in flash can't be
   opened even with the passphrase — the strongest erase this tool offers. A one-time **recovery code** (+ `recover`)
   reopens the vault if the TPM is ever lost, and **`vault-status`** tells you honestly whether the hardware key is still
-  reachable. (Windows via the TPM's Platform Crypto Provider — no admin needed; Linux/macOS roots are designed, not yet built.)
+  reachable. (**Windows** via the TPM's Platform Crypto Provider — no admin needed; **Linux** via `tpm2-tools` — a persisted,
+  *evictable* sealed object, CI-verified against an emulated TPM; **macOS** Secure Enclave is designed, pending Apple hardware.)
 - **Per-file overwrite** — `overwrite` a single file (real on HDD; best-effort on SSD), behind a confirmation gate.
 - **Memory-safe Rust**, keys in `zeroize`d buffers, vetted crypto (RustCrypto **AES-256-GCM** + **Argon2id** + **HKDF**),
   one self-contained binary.
@@ -149,10 +150,13 @@ secure-delete uninstall C:\                          # stop it any time (already
   residue in hardware (unopenable even with a flash image + the passphrase), a one-time **recovery kit** + `recover`, and
   honest **`vault-status`**. Windows (TPM Platform Crypto Provider) is complete; Linux (tpm2-tools) / macOS (Secure
   Enclave) roots are designed.
-- **v0.3.1 (Rust) ← here** — a one-click **`install`/`uninstall`** for quiet mode: on Windows a per-user, no-admin,
-  hidden logon entry that runs the background clean + one initial deep clean; on Linux the generated systemd unit + timer.
-- **Next** — the Linux/macOS hardware roots; native Linux service auto-registration; whole-drive hardware **Sanitize** for
-  disposal; transparent per-file crypto via **fscrypt** (a "protected folder", no manual vault); a desktop GUI.
+- **v0.3.1 (Rust)** — a one-click **`install`/`uninstall`** for quiet mode: on Windows a per-user, no-admin, hidden logon
+  entry that runs the background clean + one initial deep clean; on Linux the generated systemd unit + timer.
+- **v0.3.2 (Rust) ← here** — the **Linux `tpm2-tools` hardware root**: the RWK is sealed into a persisted, **evictable** TPM
+  object (never wrapped on disk; transient blobs kept in `/dev/shm`), so `hardware-shred`'s eviction is a *true* in-hardware
+  erase — stronger than the Windows on-disk key blob. CI-verified against an emulated TPM (swtpm).
+- **Next** — the **macOS Secure Enclave** root (needs a signed Swift helper + Apple silicon); native Linux service
+  auto-registration; whole-drive hardware **Sanitize** for disposal; **fscrypt** "protected folder"; a desktop GUI.
 
 Design rationale + the full plan: [PLAN.md](PLAN.md). Safety posture: [SAFETY.md](SAFETY.md).
 

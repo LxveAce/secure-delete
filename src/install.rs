@@ -6,14 +6,19 @@
 //! VBScript wrapper so the background clean runs with **no visible window**. All via `reg.exe` + a file
 //! (no `windows-sys` dependency). Linux: the systemd unit + timer are generated and printed for you to
 //! drop in and enable — honest + reversible, not auto-registered on an untested platform.
+#[cfg(windows)]
 use crate::freespace;
 #[cfg(windows)]
 use anyhow::anyhow;
-use anyhow::{bail, Result};
+#[cfg(windows)]
+use anyhow::bail;
+use anyhow::Result;
+#[cfg(windows)]
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 /// A stable, per-directory entry name (so `uninstall` finds exactly what `install` made).
+#[cfg(windows)]
 fn entry_name(dir: &Path) -> String {
     let mut h = Sha256::new();
     h.update(abs(dir).as_bytes());
