@@ -84,7 +84,8 @@ spare/over-provisioned area.
   full-disk-encryption state (+ scope), and TRIM — with plain advice (on an unencrypted SSD it tells you to enable FDE,
   because overwriting can't save you there). Plus `detect` (media + filesystem).
 - **Quiet clean, media-aware.** `clean` **overwrites** free space on an **HDD** and issues **TRIM** on an **SSD** (no
-  wear, no false promise); `service` keeps it running on a schedule so normal deletions get completed automatically.
+  wear, no false promise); `service` keeps it running on a schedule, and **`install`** sets it all up in one command
+  (Windows: per-user, no admin, no window) so normal deletions get completed automatically.
 - **The crypto-erase vault** — `init` · `add` · `list` · `open` · `shred` · **`rekey`**. Shred drops a file's key and
   re-keys the vault (crypto-erase, not an overwrite); `rekey` (change the passphrase) is a **whole-vault crypto-erase**
   that invalidates all old key material — the software way to close any stale key residue an SSD left in flash.
@@ -127,24 +128,31 @@ cargo test
 ```
 
 ## Run it quietly (the intended setup)
-"Lives quietly" = let your OS scheduler run `secure-delete service`:
-- **Linux (systemd):** a unit running `secure-delete service /home --interval 21600`, enabled at boot.
-- **Windows (Task Scheduler):** a task running `secure-delete.exe service C:\ --interval 21600 --allow-system-volume` at logon.
-
-A one-click installer that registers the service and runs the first deep clean is on the roadmap; today it's the two lines above.
+"Lives quietly" = **install it once**, and it runs at logon and cleans on a schedule:
+```
+secure-delete install C:\ --allow-system-volume     # Windows: per-user, no admin, no window; runs one deep clean now
+secure-delete install /home --interval 21600        # pick the volume + how often (seconds)
+secure-delete install C:\ --dry-run                 # see exactly what it will register — changes nothing
+secure-delete uninstall C:\                          # stop it any time (already-cleaned data isn't restorable)
+```
+- **Windows** — registers a **per-user** logon entry (`HKCU\…\Run`) that launches the background `service` **hidden**
+  (no admin, no console window) and runs one initial deep clean. `uninstall` removes the entry + its launcher.
+- **Linux** — `install` prints a ready-to-drop-in **systemd** user unit + timer and the `systemctl --user` commands to
+  enable it (native auto-registration lands alongside the Linux hardware-root work).
 
 ## Roadmap
 - **v0.1 (Python)** — per-file overwrite + guards + media/FS detection + free-space + advisory sanitize. Tagged `v0.1.0`.
 - **v0.2 (Rust)** — the **`status` advisor** + media-aware **quiet clean** (overwrite HDD / TRIM SSD) · the
   **crypto-erase vault** (`init`/`add`/`list`/`open`/`shred`) · per-file overwrite.
 - **v0.2.3** — a whole-vault **`rekey`** (passphrase change = whole-vault crypto-erase) — the software way to close the SSD residue.
-- **v0.3 (Rust) ← here** — an opt-in **TPM-backed vault root** (`init --tpm`) + **`hardware-shred`** that closes the SSD
+- **v0.3.0 (Rust)** — an opt-in **TPM-backed vault root** (`init --tpm`) + **`hardware-shred`** that closes the SSD
   residue in hardware (unopenable even with a flash image + the passphrase), a one-time **recovery kit** + `recover`, and
   honest **`vault-status`**. Windows (TPM Platform Crypto Provider) is complete; Linux (tpm2-tools) / macOS (Secure
   Enclave) roots are designed.
-- **Next** — the Linux/macOS hardware roots; a one-click installer (register the service + first deep clean); whole-drive
-  hardware **Sanitize** for disposal; transparent per-file crypto via **fscrypt** (a "protected folder", no manual vault);
-  a desktop GUI.
+- **v0.3.1 (Rust) ← here** — a one-click **`install`/`uninstall`** for quiet mode: on Windows a per-user, no-admin,
+  hidden logon entry that runs the background clean + one initial deep clean; on Linux the generated systemd unit + timer.
+- **Next** — the Linux/macOS hardware roots; native Linux service auto-registration; whole-drive hardware **Sanitize** for
+  disposal; transparent per-file crypto via **fscrypt** (a "protected folder", no manual vault); a desktop GUI.
 
 Design rationale + the full plan: [PLAN.md](PLAN.md). Safety posture: [SAFETY.md](SAFETY.md).
 

@@ -6,6 +6,7 @@
 pub mod crypto;
 pub mod detect;
 pub mod freespace;
+pub mod install;
 pub mod keyroot;
 pub mod overwrite;
 pub mod status;

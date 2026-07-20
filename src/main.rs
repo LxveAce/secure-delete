@@ -97,6 +97,29 @@ enum Cmd {
         #[arg(long)]
         allow_system_volume: bool,
     },
+    /// One-click quiet mode: register the background `service` at logon + run one deep clean, then it lives quietly.
+    Install {
+        dir: PathBuf,
+        #[arg(long, default_value_t = 21600)]
+        interval: u64,
+        #[arg(long)]
+        allow_system_volume: bool,
+        /// Cap the initial deep clean, in GiB.
+        #[arg(long)]
+        max: Option<f64>,
+        /// Skip the one-time deep clean at install.
+        #[arg(long)]
+        no_initial_clean: bool,
+        /// Show what would be registered/cleaned without changing anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Remove the quiet-mode scheduler entry (does NOT restore already-cleaned data — there's nothing to undo).
+    Uninstall {
+        dir: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 const GIB: f64 = (1u64 << 30) as f64;
@@ -299,6 +322,14 @@ fn main() -> Result<()> {
                 }
                 std::thread::sleep(std::time::Duration::from_secs(interval));
             }
+        }
+        Cmd::Install { dir, interval, allow_system_volume, max, no_initial_clean, dry_run } => {
+            let maxb = max.map(|g| (g * GIB) as u64);
+            let msg = secure_delete::install::install(&dir, interval, maxb, allow_system_volume, !no_initial_clean, dry_run)?;
+            println!("{msg}");
+        }
+        Cmd::Uninstall { dir, dry_run } => {
+            println!("{}", secure_delete::install::uninstall(&dir, dry_run)?);
         }
     }
     Ok(())
