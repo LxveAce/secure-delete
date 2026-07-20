@@ -11,6 +11,8 @@ repository = "https://github.com/LxveAce/secure-delete"
 clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 aes-gcm = "0.10"
 argon2 = "0.5"
+hkdf = "0.12"
+sha2 = "0.10"
 getrandom = "0.2"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 serde = { version = "1", features = ["derive"] }
