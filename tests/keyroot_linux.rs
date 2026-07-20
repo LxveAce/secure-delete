@@ -7,8 +7,16 @@ use std::fs;
 
 const PW: &[u8] = b"linux hardware passphrase";
 
+/// Proceed if a TPM is reachable. Normally SKIP when absent — but if `SD_REQUIRE_TPM=1` (set in CI, where
+/// an emulated TPM must be present), a missing TPM is a hard FAILURE so a broken setup can't hide behind a skip.
 fn have_tpm() -> bool {
-    LinuxTpm2Root::probe()
+    if LinuxTpm2Root::probe() {
+        return true;
+    }
+    if std::env::var("SD_REQUIRE_TPM").as_deref() == Ok("1") {
+        panic!("SD_REQUIRE_TPM=1 but no TPM2 is reachable — the emulated-TPM setup is broken");
+    }
+    false
 }
 
 #[test]
