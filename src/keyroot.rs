@@ -349,8 +349,45 @@ fn tpm2(args: &[&str], stdin: Option<&[u8]>) -> Result<(i32, Vec<u8>, String), K
     Ok((out.status.code().unwrap_or(-1), out.stdout, String::from_utf8_lossy(&out.stderr).into_owned()))
 }
 
+/// Run a tpm2 command, mapping a non-zero exit to an error and surfacing its stderr (useful for real
+/// users debugging a TPM too).
+#[cfg(target_os = "linux")]
+fn tpm2_ok(args: &[&str], stdin: Option<&[u8]>) -> Result<(), KeyRootError> {
+    let (code, _out, err) = tpm2(args, stdin)?;
+    if code == 0 {
+        Ok(())
+    } else {
+        eprintln!("secure-delete: tpm2 `{}` failed (exit {code}): {}", args.join(" "), err.trim());
+        Err(KeyRootError::CryptoFail)
+    }
+}
+
 #[cfg(target_os = "linux")]
 impl LinuxTpm2Root {
+    /// Shared persistent storage-root key (the standard SRK handle). Using a PERSISTENT parent means no
+    /// transient primary is ever left loaded — which matters when no resource manager is flushing them.
+    const SRK: &'static str = "0x81000001";
+
+    /// Create the persistent SRK once (idempotent, tolerant of a concurrent creator).
+    fn ensure_srk() -> Result<(), KeyRootError> {
+        if Self::is_persistent(Self::SRK) {
+            return Ok(());
+        }
+        let wd = Self::work_dir()?;
+        let pctx = wd.join("primary.ctx").to_string_lossy().into_owned();
+        let mut created = tpm2_ok(&["tpm2_createprimary", "-C", "o", "-c", &pctx], None);
+        if created.is_ok() {
+            created = tpm2_ok(&["tpm2_evictcontrol", "-C", "o", "-c", &pctx, Self::SRK], None);
+        }
+        let _ = tpm2(&["tpm2_flushcontext", &pctx], None); // never leak the transient primary
+        let _ = std::fs::remove_dir_all(&wd);
+        if Self::is_persistent(Self::SRK) {
+            Ok(()) // someone (maybe us) made it
+        } else {
+            created
+        }
+    }
+
     /// A usable TPM 2.0 is present iff `tpm2_getcap` talks to it.
     pub fn probe() -> bool {
         matches!(tpm2(&["tpm2_getcap", "properties-fixed"], None), Ok((0, _, _)))
@@ -396,25 +433,19 @@ impl KeyRoot for LinuxTpm2Root {
         if Self::is_persistent(&handle) {
             return Err(KeyRootError::KeyExists);
         }
+        Self::ensure_srk()?;
         let wd = Self::work_dir()?;
         let path = |n: &str| wd.join(n).to_string_lossy().into_owned();
-        let (pctx, spub, spriv, sctx) = (path("primary.ctx"), path("seal.pub"), path("seal.priv"), path("seal.ctx"));
-        let run = |args: &[&str], stdin: Option<&[u8]>| -> Result<(), KeyRootError> {
-            let (code, _out, err) = tpm2(args, stdin)?;
-            if code == 0 {
-                Ok(())
-            } else {
-                eprintln!("secure-delete: tpm2 `{}` failed (exit {code}): {}", args.join(" "), err.trim());
-                Err(KeyRootError::CryptoFail)
-            }
-        };
+        let (spub, spriv, sctx) = (path("seal.pub"), path("seal.priv"), path("seal.ctx"));
+        // Seal the RWK under the PERSISTENT SRK. Only the sealed object is transient (during load); it is
+        // flushed after we persist it, so nothing accumulates even without a resource manager.
         let result = (|| {
-            run(&["tpm2_createprimary", "-C", "o", "-c", &pctx], None)?;
-            run(&["tpm2_create", "-C", &pctx, "-u", &spub, "-r", &spriv, "-i", "-"], Some(rwk))?;
-            run(&["tpm2_load", "-C", &pctx, "-u", &spub, "-r", &spriv, "-c", &sctx], None)?;
-            run(&["tpm2_evictcontrol", "-C", "o", "-c", &sctx, &handle], None)?;
+            tpm2_ok(&["tpm2_create", "-C", Self::SRK, "-u", &spub, "-r", &spriv, "-i", "-"], Some(rwk))?;
+            tpm2_ok(&["tpm2_load", "-C", Self::SRK, "-u", &spub, "-r", &spriv, "-c", &sctx], None)?;
+            tpm2_ok(&["tpm2_evictcontrol", "-C", "o", "-c", &sctx, &handle], None)?;
             Ok(())
         })();
+        let _ = tpm2(&["tpm2_flushcontext", &sctx], None); // flush the transient sealed object
         let _ = std::fs::remove_dir_all(&wd);
         result.map(|_| String::new()) // RWK lives in the TPM; nothing to store on disk.
     }
