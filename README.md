@@ -20,7 +20,7 @@ Deleting a file, or emptying the trash, only unlinks it. The OS forgets where th
 
 On a spinning hard drive, overwriting a file's bytes really does destroy them. One pass is enough; the old 7-pass and 35-pass rituals are myths on modern hardware.
 
-SSDs are where it breaks down. The controller writes your "overwrite" to a fresh cell and leaves the original sitting in flash the OS can't even address. A well-known UC San Diego study recovered anywhere from 4% to 75% of data after a full-drive overwrite attempt. So on an SSD, overwriting one file is best-effort at best, and any tool that calls the result "unrecoverable" is lying to you.
+SSDs are where it breaks down. The controller writes your "overwrite" to a fresh cell and leaves the original sitting in flash the OS can't even address. A UC San Diego study recovered anywhere from 4% to 75% of data after a full-drive overwrite attempt. So on an SSD, overwriting one file is best-effort at best, and any tool that calls the result "unrecoverable" is lying to you.
 
 ## What it does
 
@@ -54,7 +54,7 @@ Default is one pass. Multi-pass Gutmann and DoD schemes are obsolete on modern d
 
 - **`status`** looks at a volume and tells you whether deleted data there is actually safe: HDD or SSD, whether it's encrypted and how much of it, and whether TRIM is on. On an unencrypted SSD it tells you to turn on full-disk encryption, because overwriting won't save you there. `detect` gives you just the media type and filesystem.
 - **Quiet clean.** `clean` overwrites free space on an HDD and issues TRIM on an SSD. `service` keeps it running on a schedule, and `install` sets the whole thing up in one command (on Windows: per-user, no admin, no visible window).
-- **The vault** — `init`, `add`, `list`, `open`, `shred`, `rekey`. Shred destroys a file's key and re-keys the vault. `rekey` changes the passphrase and re-keys everything, which is the software way to kill any stale key material an SSD left behind.
+- **The vault.** `init`, `add`, `list`, `open`, `shred`, `rekey`. Shred destroys a file's key and re-keys the vault. `rekey` changes the passphrase and re-keys everything, which is the software way to kill any stale key material an SSD left behind.
 - **TPM-backed vault.** `init --tpm` ties the vault to this machine's TPM, so opening it needs both the hardware and the passphrase. `hardware-shred` rotates the TPM key, which kills any stale wrapped key in flash for good. If the TPM ever dies you reopen with a one-time recovery code (`recover`), and `vault-status` tells you whether the hardware key is still there. Works on Windows (Platform Crypto Provider, no admin) and Linux (tpm2-tools, verified in CI against an emulated TPM). macOS Secure Enclave is designed but not built yet.
 - **`overwrite`** wipes a single file in place, real on an HDD and best-effort on an SSD, behind a confirmation gate.
 - **`sanitize`** is the disposal helper: it detects the drive behind a path and prints its hardware secure-erase command (`nvme sanitize` or the `hdparm` sequence), with caveats. Advisory, runs nothing.
@@ -102,15 +102,15 @@ secure-delete uninstall C:\                          # stop it (already-cleaned 
 On Windows this adds a per-user login entry under `HKCU\…\Run` that starts the background `service` with no visible window and no admin. On Linux it writes a systemd user service and timer and enables the timer. On a headless box with no user session it still writes the units and prints the two commands to finish by hand.
 
 ## Roadmap
-- **v0.1 (Python)** — per-file overwrite, guards, media/FS detection, free-space wipe, advisory sanitize. Tagged `v0.1.0`.
-- **v0.2 (Rust)** — the `status` advisor, media-aware quiet clean (overwrite on HDD, TRIM on SSD), the crypto-erase vault (`init`/`add`/`list`/`open`/`shred`), per-file overwrite.
-- **v0.2.3** — whole-vault `rekey` (a passphrase change re-keys everything), the software way to close the SSD residue.
-- **v0.3.0** — an opt-in TPM-backed vault root (`init --tpm`) and `hardware-shred` that closes the SSD residue in hardware, a one-time recovery kit with `recover`, and `vault-status`. Windows complete; Linux and macOS roots designed.
-- **v0.3.1** — one-command `install`/`uninstall` for quiet mode. On Windows a per-user, no-admin, hidden login entry that runs the background clean; on Linux a generated systemd unit and timer.
-- **v0.3.2 (current)** — the Linux tpm2-tools hardware root. The key is sealed into a persisted, evictable TPM object, so `hardware-shred` evicting it is a true in-hardware erase, stronger than the on-disk key blob Windows uses. Verified in CI against an emulated TPM.
-- **v0.3.3** — Linux `install` now writes and enables the systemd user service and timer itself, instead of just printing them, matching the one-command setup Windows already had.
-- **v0.3.4 (current)** — a `sanitize` command that detects your drive and interface and prints the exact hardware secure-erase command for disposal. Advisory, runs nothing.
-- **Next** — the macOS Secure Enclave root (needs a signed Swift helper and Apple hardware), fscrypt as a "protected folder", and a desktop GUI.
+- **v0.1 (Python).** Per-file overwrite, guards, media/FS detection, free-space wipe, advisory sanitize. Tagged `v0.1.0`.
+- **v0.2 (Rust).** The `status` advisor, media-aware quiet clean (overwrite on HDD, TRIM on SSD), the crypto-erase vault (`init`/`add`/`list`/`open`/`shred`), per-file overwrite.
+- **v0.2.3.** Whole-vault `rekey` (a passphrase change re-keys everything), the software way to close the SSD residue.
+- **v0.3.0.** An opt-in TPM-backed vault root (`init --tpm`) and `hardware-shred` that closes the SSD residue in hardware, a one-time recovery kit with `recover`, and `vault-status`. Windows complete; Linux and macOS roots designed.
+- **v0.3.1.** One-command `install`/`uninstall` for quiet mode. On Windows a per-user, no-admin, hidden login entry that runs the background clean; on Linux a generated systemd unit and timer.
+- **v0.3.2 (current).** The Linux tpm2-tools hardware root. The key is sealed into a persisted, evictable TPM object, so `hardware-shred` evicting it is a true in-hardware erase, stronger than the on-disk key blob Windows uses. Verified in CI against an emulated TPM.
+- **v0.3.3.** Linux `install` now writes and enables the systemd user service and timer itself, instead of just printing them, matching the one-command setup Windows already had.
+- **v0.3.4 (current).** A `sanitize` command that detects your drive and interface and prints the exact hardware secure-erase command for disposal. Advisory, runs nothing.
+- **Next.** The macOS Secure Enclave root (needs a signed Swift helper and Apple hardware), fscrypt as a "protected folder", and a desktop GUI.
 
 Design notes and rationale are in [PLAN.md](PLAN.md). Safety posture is in [SAFETY.md](SAFETY.md).
 
